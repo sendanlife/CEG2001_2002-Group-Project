@@ -1,0 +1,43 @@
+# 1. Ignore environment variables & secrets (CRITICAL for security)
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# 2. Ignore dependency directories (Re-installed via package managers)
+node_modules/
+bower_components/
+jspm_packages/
+.pnp
+.pnp.js
+
+# 3. Ignore build outputs and caches
+dist/
+build/
+.next/
+out/
+.nuxt/
+*.cache
+
+# 4. Ignore logs and diagnostics
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 5. Ignore Operating System system files
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+
+# 6. Ignore IDE/Code Editor specific folders
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
