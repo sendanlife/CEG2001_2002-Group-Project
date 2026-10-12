@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Login — MediTrack</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            min-height: 100vh;
+            display: flex; align-items: center; justify-content: center;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+        }
+        .card {
+            background: white; border-radius: 16px; padding: 40px;
+            width: 100%; max-width: 400px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+        }
+        .logo { text-align: center; font-size: 48px; margin-bottom: 10px; }
+        h1 { text-align: center; color: #333; font-size: 24px; margin-bottom: 6px; }
+        .subtitle { text-align: center; color: #888; margin-bottom: 30px; font-size: 14px; }
+        .form-group { margin-bottom: 18px; }
+        label { display: block; font-size: 13px; color: #555; margin-bottom: 6px; font-weight: 600; }
+        input {
+            width: 100%; padding: 12px 14px; font-size: 14px;
+            border: 2px solid #e0e0e0; border-radius: 8px;
+            transition: border 0.2s;
+        }
+        input:focus { outline: none; border-color: #667eea; }
+        .btn {
+            width: 100%; padding: 14px; border: none; border-radius: 8px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white; font-size: 15px; font-weight: 600;
+            cursor: pointer; transition: transform 0.15s;
+        }
+        .btn:hover { transform: translateY(-1px); }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .link { text-align: center; margin-top: 20px; font-size: 14px; color: #666; }
+        .link a { color: #667eea; text-decoration: none; font-weight: 600; }
+        .error {
+            background: #ffe6e6; color: #c0392b; padding: 12px;
+            border-radius: 8px; margin-bottom: 15px; font-size: 13px;
+            display: none;
+        }
+        .error.show { display: block; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="logo">💊</div>
+        <h1>Welcome Back</h1>
+        <p class="subtitle">Log in to your MediTrack account</p>
+
+        <div class="error" id="error-box"></div>
+
+        <form id="login-form">
+            <div class="form-group">
+                <label>Email</label>
+                <input type="email" id="email" required placeholder="john@example.com">
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" id="password" required placeholder="Your password">
+            </div>
+            <button type="submit" class="btn" id="submit-btn">Log In</button>
+        </form>
+
+        <p class="link">Don't have an account? <a href="/signup">Sign Up</a></p>
+    </div>
+
+    <script>
+        const API_URL = '/api';
+        const form = document.getElementById('login-form');
+        const errorBox = document.getElementById('error-box');
+        const submitBtn = document.getElementById('submit-btn');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            errorBox.classList.remove('show');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Logging in...';
+
+            try {
+                const res = await fetch(`${API_URL}/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: document.getElementById('email').value.trim().toLowerCase(),
+                        password: document.getElementById('password').value,
+                    }),
+                });
+                const result = await res.json();
+
+                if (!result.success) {
+                    return showError(result.message || 'Login failed');
+                }
+
+                localStorage.setItem('token', result.data.token);
+                localStorage.setItem('user', JSON.stringify(result.data.user));
+                window.location.href = '/';
+            } catch (err) {
+                showError('Network error. Please try again.');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Log In';
+            }
+        });
+
+        function showError(msg) {
+            errorBox.textContent = '⚠️ ' + msg;
+            errorBox.classList.add('show');
+        }
+    </script>
+</body>
+</html>

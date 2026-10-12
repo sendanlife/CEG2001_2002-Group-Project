@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>MediTrack Dashboard</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; padding: 20px; }
+        
+        .header { 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+            color: white; padding: 25px; border-radius: 12px; margin-bottom: 20px;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .header h1 { font-size: 28px; }
+        
+        .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        .card h2 { font-size: 16px; color: #555; margin-bottom: 15px; text-transform: uppercase; letter-spacing: 1px; }
+        
+        /* --- USER INFO CARD WITH EYE BUTTON --- */
+        .user-info-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .eye-btn {
+            background: none;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 6px 12px;
+            cursor: pointer;
+            font-size: 14px;
+            color: #667eea;
+            transition: all 0.2s;
+        }
+        .eye-btn:hover {
+            background: #f0f2f5;
+            border-color: #667eea;
+        }
+        .eye-btn.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+        
+        .user-info p { margin: 10px 0; color: #333; display: flex; justify-content: space-between; }
+        .user-info strong { color: #667eea; }
+        .confidential-value { 
+            font-family: 'Courier New', monospace; 
+            transition: all 0.3s ease;
+        }
+        .confidential-value.hidden {
+            letter-spacing: 2px;
+            color: #999;
+        }
+        
+        /* Temperature Card */
+        .temp-display { font-size: 48px; font-weight: bold; text-align: center; }
+        .temp-normal { color: #27ae60; }
+        .temp-warning { color: #e74c3c; }
+        
+        /* Pills Table */
+        .pills-table { width: 100%; border-collapse: collapse; }
+        .pills-table th, .pills-table td { padding: 10px; text-align: left; border-bottom: 1px solid #eee; }
+        .pills-table th { color: #888; font-weight: normal; font-size: 12px; }
+        .low-stock { color: #e74c3c; font-weight: bold; }
+        
+        /* Schedule Card */
+        .schedule-item { padding: 12px; border-left: 4px solid #667eea; margin-bottom: 10px; background: #f8f9fa; border-radius: 4px; }
+        .schedule-time { font-size: 20px; font-weight: bold; color: #667eea; }
+        
+        /* Notifications */
+        #notification-box { margin-bottom: 20px; }
+        .alert { 
+            padding: 15px; border-radius: 8px; margin-bottom: 10px; 
+            border-left: 5px solid; display: flex; justify-content: space-between;
+        }
+        .alert-error { background: #ffe6e6; border-color: #e74c3c; color: #c0392b; }
+        .alert-warning { background: #fff5e6; border-color: #f39c12; color: #d68910; }
+        .alert-success { background: #e6ffe6; border-color: #27ae60; color: #1e8449; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <h1>💊 MediTrack Dashboard</h1>
+            <p>Real-time Medication Monitoring</p>
+        </div>
+        <div id="last-updated">Connecting...</div>
+    </div>
+
+    <div id="notification-box"></div>
+
+    <div class="grid">
+        <!-- USER INFO WITH CONFIDENTIAL EYE BUTTON -->
+        <div class="card user-info">
+            <div class="user-info-header">
+                <h2 style="margin:0;">👤 User Information</h2>
+                <button class="eye-btn" id="toggle-confidential" onclick="toggleConfidential()">
+                    Show
+                </button>
+            </div>
+            
+            <p><strong>Name:</strong> <span id="user-name">-</span></p>
+            <p><strong>NFC ID:</strong> <span class="confidential-value" id="user-nfc" data-value="-">••••••••</span></p>
+            <p><strong>NRIC:</strong> <span class="confidential-value" id="user-nric" data-value="-">••••••••</span></p>
+            <p><strong>Email:</strong> <span class="confidential-value" id="user-email" data-value="-">••••••••</span></p>
+            <p><strong>Phone:</strong> <span class="confidential-value" id="user-phone" data-value="-">••••••••</span></p>
+            <p><strong>Medical Staff:</strong> <span class="confidential-value" id="user-medical-staff" data-value="-">••••••••</span></p>
+        </div>
+
+        <!-- TEMPERATURE -->
+        <div class="card">
+            <h2>🌡️ Storage Temperature</h2>
+            <div class="temp-display" id="temp-value">--°C</div>
+            <p style="text-align:center; color:#888; margin-top:10px;">Safe range: 15°C - 25°C</p>
+        </div>
+
+        <!-- LAST DISPENSE -->
+        <div class="card">
+            <h2>⏰ Last Dispense</h2>
+            <p style="font-size: 24px; font-weight: bold;" id="last-dispense-time">--:--</p>
+            <p style="color:#888;" id="last-dispense-status">No data yet</p>
+        </div>
+
+        <!-- SCHEDULE -->
+        <div class="card" style="grid-column: span 2;">
+            <h2>📅 Medication Schedule</h2>
+            <div id="schedule-list">Loading...</div>
+        </div>
+
+        <!-- PILLS -->
+        <div class="card">
+            <h2>💊 Pill Inventory</h2>
+            <table class="pills-table">
+                <thead>
+                    <tr><th>Pill Name</th><th>Quantity</th></tr>
+                </thead>
+                <tbody id="pills-list">
+                    <tr><td colspan="2">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const token = localStorage.getItem('token');
+        const currentUser = JSON.parse(localStorage.getItem('user') || 'null');
+
+        if (!token || !currentUser) {
+            window.location.href = '/static/login.html';
+            // Stop execution — nothing below should run
+            throw new Error('Redirecting to login');
+        }
+
+        // Use the logged-in user's UUID instead of hardcoded
+        const CURRENT_UUID = currentUser.UUID;
+        // Attach token to all API requests
+        async function apiFetch(url, options = {}) {
+            options.headers = {
+                ...options.headers,
+                'Authorization': `Bearer ${token}`,
+            };
+            const res = await fetch(url, options);
+            if (res.status === 401) {
+                localStorage.clear();
+                window.location.href = '/static/login.html';
+            }
+            return res;
+        }
+
+        const socket = io('http://localhost:3000');
+        const API_URL = 'http://localhost:3000/api';
+        // const CURRENT_UUID = 'user-uuid-002'; // Replace with actual logged-in user
+
+        // --- CONFIDENTIAL DATA TOGGLE ---
+        let isConfidentialHidden = true; // Default: hidden for privacy
+        let autoHideTimer;
+
+        function toggleConfidential() {
+            isConfidentialHidden = !isConfidentialHidden;
+            const button = document.getElementById('toggle-confidential');
+            const confidentialFields = document.querySelectorAll('.confidential-value');
+            
+            confidentialFields.forEach(field => {
+                const realValue = field.getAttribute('data-value') || '-';
+                if (isConfidentialHidden) {
+                    field.textContent = '••••••••';
+                    field.classList.add('hidden');
+                } else {
+                    field.textContent = realValue;
+                    field.classList.remove('hidden');
+                }
+            });
+            
+            // Update button appearance
+            if (isConfidentialHidden) {
+                button.textContent = 'Show';
+                button.classList.remove('active');
+            } else {
+                button.textContent = 'Hide';
+                button.classList.add('active');
+            }
+
+            // Auto-hide after 30 seconds if revealed
+            clearTimeout(autoHideTimer);
+            if (!isConfidentialHidden) {
+                autoHideTimer = setTimeout(() => {
+                    isConfidentialHidden = true;
+                    toggleConfidential();
+                }, 30000);
+            }
+        }
+
+        // Helper function to set confidential field
+        function setConfidentialField(elementId, value) {
+            const el = document.getElementById(elementId);
+            el.setAttribute('data-value', value || '-');
+            if (isConfidentialHidden) {
+                el.textContent = '••••••••';
+                el.classList.add('hidden');
+            } else {
+                el.textContent = value || '-';
+                el.classList.remove('hidden');
+            }
+        }
+
+        // --- LOAD ALL DASHBOARD DATA ---
+        async function loadDashboard() {
+            try {
+                const response = await apiFetch(`${API_URL}/dashboard/${CURRENT_UUID}`);
+                const result = await response.json();
+                if (!result.success) return;
+                const data = result.data;
+                document.getElementById('user-name').textContent = data.user.name; 
+                
+                // Populate Confidential fields
+                setConfidentialField('user-nfc', data.user.nfcId);
+                setConfidentialField('user-nric', data.user.NRIC || 'N/A');
+                setConfidentialField('user-email', data.user.email || 'N/A');
+                setConfidentialField('user-phone', data.user.phoneNumber || 'N/A');
+                setConfidentialField('user-medical-staff', data.user.medicalStaffName || 'N/A'); 
+                
+                // Populate Schedule
+                const scheduleList = document.getElementById('schedule-list');
+                scheduleList.innerHTML = '';
+                data.schedules.forEach(s => {
+                    const div = document.createElement('div');
+                    div.className = 'schedule-item';
+                    div.innerHTML = `
+                        <div class="schedule-time">${s.timing}</div>
+                        <div>${s.pillName} - ${s.dispenseAmount} pill(s)</div>
+                        <div style="font-size:12px; color:#888;">Repeat: ${s.onRepeat ? 'Yes' : 'No'}</div>
+                    `;
+                    scheduleList.appendChild(div);
+                });
+                
+                // Fetch Pills
+                const pillsRes = await apiFetch(`${API_URL}/pills`);
+                const pills = await pillsRes.json();
+                const pillsList = document.getElementById('pills-list');
+                pillsList.innerHTML = '';
+                pills.forEach(p => {
+                    const isLow = p.quantity < 10;
+                    pillsList.innerHTML += `
+                        <tr>
+                            <td>${p.name}</td>
+                            <td class="${isLow ? 'low-stock' : ''}">${p.quantity} ${isLow ? 'error' : ''}</td>
+                        </tr>
+                    `;
+                });
+                
+            } catch (error) {
+                console.error('Error loading dashboard:', error);
+            }
+        }
+
+        // --- REAL-TIME EVENTS FROM SENSORS ---
+        socket.on('new-event', (event) => {
+            console.log('New event:', event);
+            
+            if (event.temperature) {
+                const tempEl = document.getElementById('temp-value');
+                tempEl.textContent = `${event.temperature}°C`;
+                tempEl.className = 'temp-display ' + 
+                    (event.temperature > 25 || event.temperature < 15 ? 'temp-warning' : 'temp-normal');
+            }
+            
+            if (event.eventType === 'PILL_DISPENSED') {
+                document.getElementById('last-dispense-time').textContent = 
+                    new Date(event.timestamp).toLocaleTimeString();
+                document.getElementById('last-dispense-status').textContent = 
+                    `By ${event.userId}`;
+                showNotification('success', 'Pill Dispensed Successfully');
+                loadDashboard();
+            }
+            
+            if (event.eventType === 'LOW_STOCK') showNotification('warning', 'Warning: Pill stock is running low!');
+            if (event.eventType === 'TEMP_ALERT') showNotification('error', 'Temperature out of safe range!');
+            if (event.eventType === 'DISPENSE_ERROR') showNotification('error', 'Dispense error detected!');
+            if (event.eventType === 'EMPTY_MACHINE') showNotification('error', 'Machine is empty! Refill required.');
+            
+            document.getElementById('last-updated').textContent = 
+                `Last update: ${new Date().toLocaleTimeString()}`;
+        });
+
+        function showNotification(type, message) {
+            const box = document.getElementById('notification-box');
+            const div = document.createElement('div');
+            div.className = `alert alert-${type}`;
+            div.innerHTML = `
+                <span>${message}</span>
+                <span style="cursor:pointer;" onclick="this.parentElement.remove()">✕</span>
+            `;
+            box.appendChild(div);
+            setTimeout(() => div.remove(), 10000);
+        }
+
+        // Initial load
+        loadDashboard();
+    </script>
+</body>
+</html>
