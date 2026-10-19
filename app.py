@@ -38,27 +38,37 @@ def create_app() -> Flask:
         app.register_blueprint(bp, url_prefix="/api")
 
     @app.route("/")
-    def dashboard():
+    def indexPage():
+        """Landing page — choose Staff or Patient."""
+        return send_from_directory("static", "index.html")
+
+    @app.route("/dashboard")
+    def patientDashboardPage():
+        """Patient dashboard (requires login)."""
         return send_from_directory("static", "dashboard.html")
+    # Might create a function where patients are able to change their password created by the staff.
 
     @app.route("/login")
-    def login_page():
+    def loginPage():
         return send_from_directory("static", "login.html")
 
     @app.route("/signup")
-    def signup_page():
+    def signupPage():
         return send_from_directory("static", "signup.html")
+    # Might remove signup for patients in the future, as they should be created by staff.
     
     @app.route("/staff/login")
-    def staff_login_page():
+    def staffLoginPage():
         return send_from_directory("static", "staffLogin.html")
+    # login email: syafiq@nuh.sg
+    # login password: 12345678
 
     @app.route("/staff/signup")
-    def staff_signup_page():
+    def staffSignupPage():
         return send_from_directory("static", "staffSignup.html")
 
     @app.route("/staff/dashboard")
-    def staff_dashboard_page():
+    def staffDashboardPage():
         return send_from_directory("static", "staffDashboard.html")
 
     @app.route("/health")
@@ -72,12 +82,12 @@ def create_app() -> Flask:
 
 
 @socketio.on("connect")
-def handle_connect():
+def handleConnect():
     print("🔌 Dashboard connected")
 
 
 @socketio.on("disconnect")
-def handle_disconnect():
+def handleDisconnect():
     print("🔌 Dashboard disconnected")
 
 

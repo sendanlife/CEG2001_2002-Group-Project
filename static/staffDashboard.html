@@ -157,12 +157,14 @@
             <input type="text" id="p-name" placeholder="John Doe">
             <label>Email</label>
             <input type="email" id="p-email" placeholder="john@example.com">
+            <label>NRIC</label>
+            <input type="text" id="p-nric" placeholder="S1234567A">
             <label>Phone</label>
             <input type="tel" id="p-phone" placeholder="+65 9123 4567">
             <label>NFC Wristband ID</label>
             <input type="text" id="p-nfc" placeholder="NFC-A3F2B1">
             <label>Temporary Password</label>
-            <input type="password" id="p-password" placeholder="Min 8 characters" value="changeme123">
+            <input type="password" id="p-password" placeholder="Min 8 characters">
             <div class="modal-actions">
                 <button class="btn-secondary" onclick="closeModal('modal-add-patient')">Cancel</button>
                 <button class="btn-primary" onclick="addPatient()">Add Patient</button>
@@ -373,6 +375,7 @@
                 phoneNumber: document.getElementById('p-phone').value.trim(),
                 NFCid: document.getElementById('p-nfc').value.trim(),
                 password: document.getElementById('p-password').value,
+                nric: document.getElementById('p-nric').value.trim()
             };
 
             const res = await apiFetch(`${API_URL}/staff/patients`, {
