@@ -1,4 +1,3 @@
-#include <msp430.h>
 #include <linearActuator.h>
 
 /*
