@@ -7,7 +7,6 @@
  * Summary: Header file for MSP430 UART communication. Declares 
  * initialization and string transmission functions used to interface with the ESP32.
  * Author(s): [Insert Team Member 1], [Insert Team Member 2]
- * Version: 1.1
  */
 
 /*

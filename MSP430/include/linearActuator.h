@@ -7,7 +7,6 @@
  * Summary: Header file for linearActuator.c, providing function prototypes 
  * for controlling a 12V linear actuator via an L298N driver and MSP430 Timer_A.
  * Author(s): [Insert Team Member 1], [Insert Team Member 2], [Insert Team Member 3]
- * Version: 1.0
  */
 
 /*

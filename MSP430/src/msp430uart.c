@@ -7,7 +7,6 @@
  * authorization flags from the ESP32 and wake the MCU from low-power sleep.
  * Code Structure: msp430_uart_init(), msp430_uart_send_string(), USCI0RX_ISR
  * Author(s): [Insert Team Member 1], [Insert Team Member 2]
- * Version: 1.1
  */
 
 /*
