@@ -1,15 +1,13 @@
-#include <linearActuator.h>
+#include <msp430.h>
+#include "linearActuator.h"
 
 /*
  * Summary: This modular embedded C program drives a 12V linear actuator
  * using an L298N motor driver connected to an MSP430 Launchpad. The program
- * flow starts by stopping the watchdog timer and configuring the GPIO pins.
- * P1.2 is configured for Timer_A PWM output to control the L298N's ENA pin
+ * configures P1.2 for Timer_A PWM output to control the L298N's ENA pin
  * (speed control), while P1.3 and P1.4 act as digital outputs to control IN1 
- * and IN2 (direction control). The main loop extends the actuator to push a 
- * pill, pauses, retracts it back to the home position, and enters a Low-Power
- * Mode (LPM0) to conserve energy until the next dispense event.
- * Code Structure: main(), setup_pins_and_timer(), extend_actuator(), retract_actuator(), stop_actuator()
+ * and IN2 (direction control). 
+ * Code Structure: setup_pins_and_timer(), extend_actuator(), retract_actuator(), stop_actuator()
  * Author(s): Liew Hui Zhong
  */
 
@@ -63,38 +61,11 @@ void stop_actuator(void) {
 }
 
 /*
- * Role: Main program loop running the dispense sequence and entering power saving mode.
- * Parameters: None
- * Returns: int (never returns)
- */
-int main(void) {
-    WDTCTL = WDTPW | WDTHOLD;         /* Stop watchdog timer to prevent resets */
-    
-    setup_pins_and_timer();           /* Initialize hardware peripherals */
-
-    while(1) {
-        extend_actuator();            /* Actuate the push rod to drop pill */
-        __delay_cycles(2000000);      /* Wait ~2s for full 30mm extension */
-        
-        stop_actuator();              /* Stop briefly to prevent motor stress */
-        __delay_cycles(500000);       /* Wait ~0.5s before reversing polarity */
-        
-        retract_actuator();           /* Pull the push rod back to chamber */
-        __delay_cycles(2000000);      /* Wait ~2s for full retraction */
-        
-        stop_actuator();              /* Power off actuator mechanism */
-        
-        __bis_SR_register(LPM0_bits); /* Enter Low-Power Mode until next UART/Timer interrupt */
-    }
-    return 0;
-}
-
-/*
  * Individual Reflection:
- * TM1: Designing the GPIO initialization was straightforward, but mapping out which pins supported 
+ * Liew Hui Zhong: Designing the GPIO initialization was straightforward, but mapping out which pins supported 
  * Timer_A outputs based on the datasheet required direct application of CEG2002 hardware concepts.
- * TM2: Implementing the PWM required applying knowledge from lectures on Timer_A registers (CCR0 and CCR1). 
+ * Implementing the PWM required applying knowledge from lectures on Timer_A registers (CCR0 and CCR1). 
  * Debugging the duty cycle was a challenge until I correctly configured the OUTMOD_7 reset/set behavior.
- * TM3: Integrating the physical sequence into a cohesive C flow was tricky. I learned that adding delays 
+ * Integrating the physical sequence into a cohesive C flow was tricky. I learned that adding delays 
  * between reversing the motor polarity is crucial to prevent voltage spikes that could crash the L298N.
  */

@@ -18,7 +18,7 @@ int main(void) {
     setup_pins_and_timer();           /* Initialize actuator pins and Timer_A PWM (Author: TM2) */
     msp430_uart_init();               /* Initialize UART communication interface (Author: TM1) */
     
-    __enable_interrupts();            /* Enable global maskable interrupts (Author: TM1) */
+    __enable_interrupt();            /* Enable global maskable interrupts (Author: TM1) */
 
     while(1) {
         __bis_SR_register(LPM0_bits + GIE); /* Enter LPM0 with interrupts enabled */
