@@ -7,7 +7,6 @@
  * for incoming drop confirmations ("DROP_SUCCESS") from the MSP430.
  * Code Structure: esp32_uart_init(), esp32_send_authorization(), esp32_check_messages()
  * Author(s): [Insert Team Member 1], [Insert Team Member 2]
- * Version: 1.1
  */
 
 /* Define Hardware Serial2 pins for MSP430 Bridge */
@@ -15,7 +14,7 @@
 #define MSP_TX_PIN 17  /* ESP32 TX2 connected to MSP430 RX */
 
 /*
- * Role: Initializes Serial2 with a 9600 baud rate and defined RX/TX pins.
+ * Role: Initializes Serial2 with a 9600 baud rate and dfined RX/TX pins.
  * Parameters: None
  * Returns: None
  */

@@ -7,7 +7,6 @@
  * Summary: Header file for ESP32 UART communication with the MSP430 Launchpad.
  * Declares initialization functions and command handlers using Hardware Serial2.
  * Author(s): [Insert Team Member 1], [Insert Team Member 2]
- * Version: 1.1
  */
 
 /*
