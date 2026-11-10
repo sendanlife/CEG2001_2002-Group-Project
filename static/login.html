@@ -98,7 +98,7 @@
 
                 localStorage.setItem('token', result.data.token);
                 localStorage.setItem('user', JSON.stringify(result.data.user));
-                window.location.href = '/';
+                window.location.href = '/dashboard';
             } catch (err) {
                 showError('Network error. Please try again.');
             } finally {
