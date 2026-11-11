@@ -6,30 +6,26 @@ volatile float currentTemp = 0.0;
 volatile unsigned int rawADC = 0;
 
 void TempSensor_Init(void) {
-    // 1. Configure Hardware Pin
-    ADC10AE0 |= BIT0; // Enable analog input on Pin P1.0 (Channel 0)
+    // 1. Configure Hardware Pin (P6.0 as Analog Input)
+    P6SEL |= BIT0; 
 
-    // 2. Configure ADC10 Module
-    // SREF_0: Use Vcc (3.3V) and Vss (0V) as voltage references
-    // ADC10SHT_3: 64 ADC10CLK cycles for sample-and-hold time (allows voltage to stabilize)
-    // ADC10ON: Turn on the ADC10 peripheral
-    // ADC10IE: Enable ADC interrupt so we don't have to poll it
-    ADC10CTL0 = SREF_0 | ADC10SHT_3 | ADC10ON | ADC10IE;
+    // 2. Configure ADC12 Module
+    ADC12CTL0 = ADC12SHT0_3 | ADC12ON;      // 64 clock cycles sample time, turn on ADC12
+    ADC12CTL1 = ADC12SHP;                   // Use sampling timer
+    ADC12CTL2 = ADC12RES;                   // 12-bit resolution (0 to 4095)
     
-    // INCH_0: Select Input Channel 0 (P1.0)
-    // ADC10DIV_3: Divide ADC10 clock by 4
-    ADC10CTL1 = INCH_0 | ADC10DIV_3; 
+    // SREF_0: Vcc (3.3V) and Vss (0V). INCH_0: Channel A0 (P6.0)
+    ADC12MCTL0 = ADC12SREF_0 | ADC12INCH_0; 
     
-    // 3. Configure Timer_A for periodic background sampling
-    // TASSEL_1: Use ACLK (Auxiliary Clock, typically 32kHz crystal or internal VLO)
-    // MC_1: Up mode (counts up to CCR0 then resets)
-    TACTL = TASSEL_1 | MC_1;
-    CCTL0 = CCIE;     // Enable Timer_A0 interrupt
-    CCR0 = 32768;     // Set interval to 1 second (assuming 32kHz ACLK)
+    ADC12IE |= BIT0;                        // Enable interrupt for ADC12MEM0
+
+    // 3. Configure Timer0_A3 for periodic background sampling (1 second interval)
+    TA0CTL = TASSEL_1 | MC_1;               // ACLK (32kHz), Up Mode
+    TA0CCTL0 = CCIE;                        // Enable Timer_A0 interrupt
+    TA0CCR0 = 32768;                        // 1 second interval
 }
 
 float TempSensor_GetLatestReading(void) {
-    // Returns the most recently calculated temperature to main.c
     return currentTemp;
 }
 
@@ -40,16 +36,15 @@ float TempSensor_GetLatestReading(void) {
 // Timer A0 ISR: Fires once every second to trigger a new ADC reading
 #pragma vector=TIMER0_A0_VECTOR
 __interrupt void Timer_A (void) {
-    ADC10CTL0 |= ENC + ADC10SC; // Enable Conversion (ENC) and Start Conversion (ADC10SC)
+    ADC12CTL0 |= ADC12ENC + ADC12SC;        // Enable and Start Conversion
 }
 
-// ADC10 ISR: Fires automatically when the analog-to-digital conversion is complete
-#pragma vector=ADC10_VECTOR
-__interrupt void ADC10_ISR (void) {
-    rawADC = ADC10MEM; // Extract the raw 10-bit integer (0 to 1023)
+// ADC12 ISR: Fires automatically when the conversion is complete
+#pragma vector=ADC12_VECTOR
+__interrupt void ADC12_ISR (void) {
+    rawADC = ADC12MEM0; // Extract the raw 12-bit integer (0 to 4095)
     
-    // Convert raw integer to Celsius. 
-    // This formula assumes an LM35 sensor (10mV / Degree C) and a 3.3V reference.
-    // Math: (rawADC / 1023.0) * 3300mV total range / 10mV step
-    currentTemp = ((float)rawADC / 1023.0) * 330.0; 
+    // Convert raw 12-bit integer to Celsius for the LM35
+    // Math: (rawADC / 4095.0) * 3300mV total range / 10mV step
+    currentTemp = ((float)rawADC / 4095.0) * 330.0; 
 }
