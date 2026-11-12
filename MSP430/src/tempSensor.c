@@ -12,7 +12,7 @@ void TempSensor_Init(void) {
     // 2. Configure ADC12 Module
     ADC12CTL0 = ADC12SHT0_3 | ADC12ON;      // 64 clock cycles sample time, turn on ADC12
     ADC12CTL1 = ADC12SHP;                   // Use sampling timer
-    ADC12CTL2 = ADC12RES;                   // 12-bit resolution (0 to 4095)
+    ADC12CTL2 = ADC12RES_0;                   // 12-bit resolution (0 to 4095)
     
     // SREF_0: Vcc (3.3V) and Vss (0V). INCH_0: Channel A0 (P6.0)
     ADC12MCTL0 = ADC12SREF_0 | ADC12INCH_0; 
