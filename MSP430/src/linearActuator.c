@@ -89,3 +89,23 @@ void retract_actuator_for(unsigned int ms) {
     delay_ms(ms);
     stop_actuator();
 }
+
+/*
+ * Role: Extends the actuator to ACTUATOR_MAX_EXTEND_PERCENT of its stroke (time based), then stops.
+ * Parameters: None
+ * Returns: None
+ */
+void extend_actuator_limited(void) {
+    unsigned int ms = (unsigned int)(((unsigned long)ACTUATOR_FULL_STROKE_MS *
+                                      ACTUATOR_MAX_EXTEND_PERCENT) / 100UL);
+    extend_actuator_for(ms);
+}
+
+/*
+ * Role: Retracts for the full stroke time so the rod ends fully retracted (re-homes every cycle).
+ * Parameters: None
+ * Returns: None
+ */
+void retract_actuator_home(void) {
+    retract_actuator_for(ACTUATOR_FULL_STROKE_MS);
+}
