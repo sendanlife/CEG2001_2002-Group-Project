@@ -1,6 +1,7 @@
 #include <msp430.h>
 #include "msp430uart.h"
 #include "linearActuator.h"
+#include "tempSensor.h"
 
 /*
  * Summary: Main application program for the SmartDispense MSP430 subsystem.
@@ -22,6 +23,8 @@ int main(void) {
 
     while(1) {
         __bis_SR_register(LPM0_bits + GIE); /* Enter LPM0 with interrupts enabled */
+
+        TempSensor_Init();                   /* Start temperature monitoring (Author: TM3) */
         
         extend_actuator();            /* Push out the linear actuator to dispense pill (Author: TM3) */
         __delay_cycles(2000000);      /* Wait ~2s for complete extension stroke (Author: TM3) */

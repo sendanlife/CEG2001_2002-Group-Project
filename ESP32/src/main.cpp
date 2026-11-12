@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include "esp32uart.h"
+#include "nfc.h"
 
 /*
  * Summary: Main application file for the ESP32 subsystem. Currently 
@@ -10,37 +11,38 @@
  * Version: 1.0
  */
 
-void setup() {
-    // Initialize USB debugging serial port (Serial0)
-    Serial.begin(115200);
-    delay(1000); // Give the serial monitor a second to connect
+// Define the hardware UART pins for ESP32 to MSP430 communication
+#define MSP430_RX_PIN 16 
+#define MSP430_TX_PIN 17
 
-    // Initialize UART bridge to MSP430 on Serial2
-    esp32_uart_init();
+void setup() {
+    // 1. Initialize USB Serial Monitor for VS Code debugging
+    Serial.begin(115200);
+
+    // 2. Initialize UART2 to talk to the MSP430 at 9600 baud
+    Serial2.begin(9600, SERIAL_8N1, MSP430_RX_PIN, MSP430_TX_PIN);
+
+    // 3. Initialize the NFC module using your custom function
+    init_nfc();
     
-    Serial.println("ESP32 Main: UART Bridge Ready.");
-    Serial.println("Type 'AUTH' in the Serial Monitor to send the wake-up flag to the MSP430.");
+    Serial.println("ESP32 Booted. Waiting for authorized card tap...");
 }
 
 void loop() {
-    // 1. Listen for incoming messages from the MSP430 (e.g., "DROP_SUCCESS")
-    String incoming_msg = esp32_check_messages();
-    
-    if (incoming_msg.length() > 0) {
-        Serial.print("Received from MSP430: ");
-        Serial.println(incoming_msg);
-    }
-
-    // 2. Listen for manual input from your computer to test the transmission
-    if (Serial.available() > 0) {
-        String command = Serial.readStringUntil('\n');
-        command.trim();
+    // Check if the correct card has been tapped
+    if (check_nfc_card()) {
         
-        if (command == "AUTH") {
-            Serial.println("Simulating valid NFC tap...");
-            esp32_send_authorization();
-        }
+        Serial.println("Authorized Card Detected! Dispensing...");
+
+        // Send a single character 'D' to trigger the MSP430 FSM
+        Serial2.print('D'); 
+        
+        // 3-second delay to prevent spamming the UART buffer if the card is held down
+        delay(3000); 
+        
+        Serial.println("Ready for next tap...");
     }
     
-    delay(50); // Brief delay for loop stability
+    // Background delay to keep the ESP32 watchdog timer stable
+    delay(50);
 }

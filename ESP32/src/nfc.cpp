@@ -2,12 +2,12 @@
 #include <SPI.h>
 #include <MFRC522.h>
 
-#define SS_PIN 5
+#define SS_PIN 21
 #define RST_PIN 22
 MFRC522 rfid(SS_PIN, RST_PIN);
 
-// Specific card's UID
-byte authorizedUID[4] = {0xCC, 0xA6, 0x56, 0x49}; 
+// Our card's UID
+byte authorizedUID[4] = {0x43, 0x96, 0xB8, 0x15}; 
 
 void init_nfc() {
     SPI.begin();
@@ -19,7 +19,7 @@ bool check_nfc_card() {
     if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) {
         return false;
     }
-
+    
     bool isAuthorized = true;
 
     // Verify the UID size matches (Standard MIFARE Classic is 4 bytes)
@@ -27,7 +27,7 @@ bool check_nfc_card() {
         // Compare the scanned card byte-by-byte against the authorized array
         for (byte i = 0; i < 4; i++) {
             if (rfid.uid.uidByte[i] != authorizedUID[i]) {
-                isAuthorized = false;
+                isAuthorized = false;   
                 break; // Mismatch found, stop checking
             }
         }
