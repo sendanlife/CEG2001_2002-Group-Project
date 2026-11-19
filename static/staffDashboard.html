@@ -158,11 +158,16 @@
             <label>Email</label>
             <input type="email" id="p-email" placeholder="john@example.com">
             <label>NRIC</label>
-            <input type="text" id="p-nric" placeholder="S1234567A">
+            <input type="text" id="p-nric" name="nric" placeholder="S1234567A"
+            maxlength="9" autocomplete="off">
             <label>Phone</label>
             <input type="tel" id="p-phone" placeholder="+65 9123 4567">
             <label>NFC Wristband ID</label>
-            <input type="text" id="p-nfc" placeholder="NFC-A3F2B1">
+            <div style="display:flex; gap:8px;">
+                <input type="text" id="p-nfc" placeholder="A3F2B1" style="flex:1;">
+                <button type="button" class="btn-secondary" style="flex:0 0 auto; padding:10px 12px; margin-bottom: 14px;"
+                        onclick="scanNFC()">Scan</button>
+            </div>
             <label>Temporary Password</label>
             <input type="password" id="p-password" placeholder="Min 8 characters">
             <div class="modal-actions">
@@ -179,10 +184,6 @@
             <div class="error-box" id="err-add-pill"></div>
             <label>Pill Name</label>
             <input type="text" id="pill-name" placeholder="Amlodipine 5mg">
-            <label>Weight (grams)</label>
-            <input type="number" id="pill-weight" step="0.01" placeholder="5.00">
-            <label>Initial Quantity</label>
-            <input type="number" id="pill-quantity" value="0">
             <label>Description</label>
             <textarea id="pill-desc" rows="2" placeholder="Blood pressure medication"></textarea>
             <div class="modal-actions">
@@ -248,6 +249,9 @@
     </div>
 
     <script>
+        let serialPort = null;
+        let serialReader = null;
+
         const token = localStorage.getItem('staff_token');
         const staff = JSON.parse(localStorage.getItem('staff') || 'null');
         if (!token || !staff) {
@@ -393,7 +397,61 @@
             document.getElementById('p-email').value = '';
             document.getElementById('p-phone').value = '';
             document.getElementById('p-nfc').value = '';
+            document.getElementById('p-password').value = '';
+            document.getElementById('p-nric').value = '';
             loadDashboard();
+        }
+
+        async function scanNFC() {
+            // Must be triggered by a user gesture (button click) — required by the API
+            if (!('serial' in navigator)) {
+                toast('error', 'Web Serial not supported. Use Chrome/Edge over HTTPS or localhost.');
+                return;
+            }
+
+            try {
+                // First time: ask the user to pick the port
+                if (!serialPort) {
+                    serialPort = await navigator.serial.requestPort();
+                    await serialPort.open({ baudRate: 115200 });
+                    startSerialReader();
+                }
+                toast('success', 'Tap the card on the reader now…');
+            } catch (err) {
+                console.error(err);
+                toast('error', 'Serial connection failed: ' + err.message);
+            }
+        }
+
+        function startSerialReader() {
+            const decoder = new TextDecoderStream();
+            serialPort.readable.pipeTo(decoder.writable).catch(() => {});
+            serialReader = decoder.readable.getReader();
+
+            let buffer = '';
+            (async () => {
+                while (true) {
+                    const { value, done } = await serialReader.read();
+                    if (done) break;
+                    buffer += value;
+                    let lines = buffer.split('\n');
+                    buffer = lines.pop(); // keep incomplete line
+                    for (const line of lines) {
+                        const trimmed = line.trim();
+                        if (trimmed.startsWith('NFC:')) {
+                            const uid = trimmed.substring(4);
+                            handleScannedUID(uid);
+                        }
+                    }
+                }
+            })();
+        }
+
+        function handleScannedUID(uid) {
+            // Format to match your existing convention, e.g. "NFC-4396B815"
+            const formatted = uid;
+            document.getElementById('p-nfc').value = formatted;
+            toast('success', 'NFC scanned: ' + formatted);
         }
 
         // ─── ADD PILL ─────────────────────────────────
@@ -401,8 +459,8 @@
             clearErrors();
             const payload = {
                 pillName: document.getElementById('pill-name').value.trim(),
-                weight: parseFloat(document.getElementById('pill-weight').value),
-                quantity: parseInt(document.getElementById('pill-quantity').value) || 0,
+                // weight: parseFloat(document.getElementById('pill-weight').value),
+                // quantity: parseInt(document.getElementById('pill-quantity').value) || 0,
                 DESCRIPTION: document.getElementById('pill-desc').value.trim(),
             };
 
@@ -418,8 +476,8 @@
             toast('success', 'Pill added to catalogue');
             closeModal('modal-add-pill');
             document.getElementById('pill-name').value = '';
-            document.getElementById('pill-weight').value = '';
-            document.getElementById('pill-quantity').value = 0;
+            // document.getElementById('pill-weight').value = '';
+            // document.getElementById('pill-quantity').value = 0;
             document.getElementById('pill-desc').value = '';
         }
 

@@ -83,12 +83,12 @@ def create_app() -> Flask:
 
 @socketio.on("connect")
 def handleConnect():
-    print("🔌 Dashboard connected")
+    print("Dashboard connected")
 
 
 @socketio.on("disconnect")
 def handleDisconnect():
-    print("🔌 Dashboard disconnected")
+    print("Dashboard disconnected")
 
 
 if __name__ == "__main__":

@@ -29,8 +29,6 @@ def get_dashboard(uuid):
         {
             "pillsId": pill.pillsId,
             "pillName": pill.pillName,
-            "weight": float(pill.weight),
-            "quantity": inv.quantity,
             "pillsDose": inv.pillsDose,
             "DESCRIPTION": pill.DESCRIPTION,
             "lowStock": inv.quantity < 10,
@@ -58,7 +56,7 @@ def get_dashboard(uuid):
         "user": {
             "name": user.NAME,
             "nfcId": user.NFCId,
-            "NRIC": "",                     # add a column if needed
+            "NRIC": user.nric,
             "email": user.email,
             "phoneNumber": user.phoneNumber,
             "medicalStaffName": medical_staff_name,

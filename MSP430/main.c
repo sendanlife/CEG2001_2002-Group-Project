@@ -1,56 +1,65 @@
 #include <msp430.h>
 #include <string.h>
+#include "msp430uart.h"
+#include "linearActuator.h"
 #include "stepperMotor.h"
 
-#define NUM_SLOTS 6
-#define MAX_SLOTS 6
+/*
+ * Summary: Main application program for the SmartDispense MSP430 subsystem.
+ * Initializes system peripherals, enters Low-Power Mode (LPM0) to conserve energy, 
+ * and waits for a UART interrupt triggered by the ESP32 upon successful NFC 
+ * patient authentication. Once awakened, it executes the dispensing sequence 
+ * and transmits a confirmation string back to the ESP32.
+ * Author(s): OWEN LIM, RACHELLE ANG RUI XUAN, GABRIEL LEE JUN RONG, LIEW HUI ZHONG, SYAFIQ BIN ISKANDAR ABDULLAH YEOH
+ */
 
-volatile unsigned char target_slot = 0;
+#define NUM_SLOTS 6
+
+// Global variables for UART communication
 volatile unsigned char dispense_flag = 0;
 char rx_buffer[20];
 int rx_index = 0;
 
-void UART_Init(void) {
-    // Configure UART for 9600 baud (assuming 1MHz SMCLK)
-    UCA0CTL1 |= UCSWRST;
-    UCA0CTL1 |= UCSSEL_2; // SMCLK
-    UCA0BR0 = 104;        // 1MHz / 9600 = ~104
-    UCA0BR1 = 0;
-    UCA0MCTL = UCBRS0;
-    
-    // Configure UART Pins (Example: P1.1 RX, P1.2 TX - check your board!)
-    // P1SEL |= BIT1 + BIT2;
-    // P1SEL2 |= BIT1 + BIT2;
-    
-    UCA0CTL1 &= ~UCSWRST;
-    UCA0IE |= UCRXIE; // Enable RX interrupt
-}
+// We use the UART init from msp430uart.h, so we don't need to redefine it here.
+// Just make sure msp430uart.c configures the baud rate to 9600!
 
 int main(void) {
-    WDTCTL = WDTPW | WDTHOLD; // Stop watchdog timer
+    WDTCTL = WDTPW | WDTHOLD;       // Stop watchdog timer
 
-    // Initialize hardware
-    motor_init();
-    UART_Init();
+    // 1. Initialize all hardware modules
+    setup_pins_and_timer();         // Initialize linear actuator pins and PWM
+    motor_init();                   // Initialize stepper motor pins
+    msp430_uart_init();             // Initialize UART communication interface
+    
+    __enable_interrupt();           // Enable global maskable interrupts
 
-    __enable_interrupt(); // Enable global interrupts
-
-    while (1) {
-        if (dispense_flag) {
-            // Calculate next slot (cycles 0 -> 1 -> 2 ... -> 5 -> 0)
-            target_slot = (motor_get_current_slot() + 1) % NUMBER_OF_SLOTS;
-            
-            // Move motor to target slot
-            motor_select_slot(target_slot);
-            
-            // Turn off motor coils so it doesn't overheat
-            motor_release(); 
-            
-            dispense_flag = 0; // Reset flag
-        }
-        
-        // Sleep until next interrupt
+    while(1) {
+        // Sleep and wait for UART interrupt
         __bis_SR_register(LPM0_bits + GIE); 
+        
+        // --- Execution resumes here after ESP32 sends "DISPENSE" ---
+        if (dispense_flag) {
+            
+            // ACTION 1: Linear Actuator Sequence
+            extend_actuator();            
+            __delay_cycles(2000000);      // Wait ~2s for extension
+            stop_actuator();              
+            __delay_cycles(500000);       
+            retract_actuator();           
+            __delay_cycles(2000000);      // Wait ~2s for retraction
+            stop_actuator();              
+
+            // ACTION 2: Stepper Motor Sequence (Rotate to next slot)
+            unsigned char target_slot = (motor_get_current_slot() + 1) % NUM_SLOTS;
+            motor_select_slot(target_slot);
+            motor_release();              // Turn off coils to prevent overheating
+
+            // ACTION 3: Notify ESP32
+            msp430_uart_send_string("DROP_SUCCESS\n"); 
+            
+            // Reset flag for next time
+            dispense_flag = 0; 
+        }
     }
 }
 
@@ -64,9 +73,12 @@ __interrupt void USCI_A0_ISR(void) {
         
         // Check for ESP32 command
         if (strcmp(rx_buffer, "DISPENSE") == 0) {
-            dispense_flag = 1; // Set flag to trigger motor in main loop
+            dispense_flag = 1; // Set flag to trigger actions in main loop
             __bic_SR_register_on_exit(LPM0_bits); // Wake up CPU
+        } else if (strcmp(rx_buffer, "AUTH") == 0) {
+            __bic_SR_register_on_exit(LPM0_bits); // Wake up CPU just for testing
         }
+        
         rx_index = 0; // Reset buffer
     } else {
         if (rx_index < 20) {

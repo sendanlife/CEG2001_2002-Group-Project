@@ -150,7 +150,7 @@ def staff_add_patient():
         return error("Invalid or missing token", 401)
 
     data = request.get_json() or {}
-    missing = require_fields(data, ["name", "email", "NFCid", "password"])
+    missing = require_fields(data, ["name", "email", "nric", "NFCid", "password"])
     if missing:
         return error(f"Missing fields: {', '.join(missing)}", 400)
 
@@ -176,6 +176,7 @@ def staff_add_patient():
             UUID=user_uuid,
             NAME=data["name"].strip(),
             email=email,
+            nric=data["nric"].strip(), 
             phoneNumber=data.get("phoneNumber", "").strip(),
             MSId=staff.MSId,
             NFCId=data["NFCid"].strip(),
@@ -225,7 +226,7 @@ def staff_add_pill():
         return error("Invalid or missing token", 401)
 
     data = request.get_json() or {}
-    missing = require_fields(data, ["pillName", "weight"])
+    missing = require_fields(data, ["pillName"])
     if missing:
         return error(f"Missing fields: {', '.join(missing)}", 400)
 
@@ -238,8 +239,6 @@ def staff_add_pill():
         pill = Pill(
             pillsId=pills_id,
             pillName=data["pillName"].strip(),
-            weight=float(data["weight"]),
-            quantity=int(data.get("quantity", 0)),
             DESCRIPTION=data.get("DESCRIPTION", "").strip(),
         )
         db.session.add(pill)
