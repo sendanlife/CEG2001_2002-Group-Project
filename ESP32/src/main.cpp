@@ -1,93 +1,131 @@
 #include <Arduino.h>
-<<<<<<< HEAD
-#include "loadCell.h"
-#include "stepMonitor.h"
-#include "led.h"
-
-// Business Logic Constants
-const float PILL_THRESHOLD = 1.0; // Grams
-
-void setup() {
-    Serial.begin(115200);
-    
-    // Initialize all independent modules
-    LoadCell_Init(4, 5); // DOUT, SCK
-    Stepper_Init();
-    LED_Init();
-    
-    LoadCell_Tare();
-    Serial.println("MediTrack System Ready.");
-}
-
-void loop() {
-    // 1. Get data from the sensor module
-    float current_weight = LoadCell_GetWeightGrams();
-    
-    // 2. Apply your conditions
-    if (current_weight > PILL_THRESHOLD) {
-        // --- PILLS DETECTED ---
-        LED_TurnOff();       // Ensure red LED is off
-        Stepper_Dispense();  // Activate stepper motor
-        
-        Serial.println("Pills detected. Dispensing...");
-        
-        // Wait before checking again so the motor doesn't spin infinitely
-        delay(5000); 
-        
-    } else {
-        // --- NO PILLS DETECTED ---
-        LED_TurnOn();        // Light up red LED
-        // (We do nothing to the stepper, so it stays off)
-        
-        Serial.println("Storage empty. LED ON.");
-    }
-    
-    delay(500); // Loop delay
-=======
-#include "esp32uart.h"
+#include <WiFi.h>
+#include <HTTPClient.h>
 #include "nfc.h"
 
-/*
- * Summary: Main application file for the ESP32 subsystem. Currently 
- * configured strictly to test and run the bidirectional UART bridge 
- * to the MSP430 Launchpad.
- * Code Structure: setup(), loop()
- * Author(s): [Insert Team Member 1]
- * Version: 1.0
- */
-
-// Define the hardware UART pins for ESP32 to MSP430 communication
-#define MSP430_RX_PIN 16 
+#define MSP430_RX_PIN 16
 #define MSP430_TX_PIN 17
 
-void setup() {
-    // 1. Initialize USB Serial Monitor for VS Code debugging
-    Serial.begin(115200);
+const char* ssid = "yoe";
+const char* password = "pword123";
 
-    // 2. Initialize UART2 to talk to the MSP430 at 9600 baud
+const String baseUrl = "http://10.19.81.203:3000";
+const String nfcEndpoint = baseUrl + "/api/auth/verify-nfc";
+const String tempEndpoint = baseUrl + "/api/temperature";
+const String dispenseStatusEndpoint = baseUrl + "/api/dispense-status";
+
+String uartBuffer = "";
+
+void postTemperatureToFlask(float tempC) {
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("Error: Wi-Fi Disconnected (temp skipped)");
+        return;
+    }
+
+    HTTPClient http;
+    http.setTimeout(3000);
+    http.begin(tempEndpoint);
+    http.addHeader("Content-Type", "application/json");
+
+    String payload = "{\"temperature\":" + String(tempC, 1) + "}";
+    int httpCode = http.POST(payload);
+    Serial.printf("Temp %.1f C -> HTTP %d\n", tempC, httpCode);
+    http.end();
+}
+
+void postDispenseStatusToFlask(const String& status) {
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("Error: Wi-Fi Disconnected (dispense status skipped)");
+        return;
+    }
+
+    HTTPClient http;
+    http.setTimeout(3000);
+    http.begin(dispenseStatusEndpoint);
+    http.addHeader("Content-Type", "application/json");
+
+    String payload = "{\"status\":\"" + status + "\"}";
+    int httpCode = http.POST(payload);
+    Serial.printf("Dispense %s -> HTTP %d\n", status.c_str(), httpCode);
+    http.end();
+}
+
+void checkMSP430UART() {
+    while (Serial2.available()) {
+        char c = Serial2.read();
+        if (c == '\n') {
+            uartBuffer.trim();
+            if (uartBuffer.startsWith("TEMP:")) {
+                float tempC = uartBuffer.substring(5).toFloat();
+                postTemperatureToFlask(tempC);
+            } else if (uartBuffer.startsWith("DISPENSE:")) {
+                String status = uartBuffer.substring(9);
+                postDispenseStatusToFlask(status);
+            }
+            uartBuffer = "";
+        } else if (c != '\r') {
+            uartBuffer += c;
+            if (uartBuffer.length() > 64) {
+                uartBuffer = "";
+            }
+        }
+    }
+}
+
+void handleNFC() {
+    String scannedUID = get_nfc_card();
+
+    if (scannedUID != "") {
+        Serial.println("Card Tapped! UID: " + scannedUID);
+
+        if (WiFi.status() == WL_CONNECTED) {
+            HTTPClient http;
+            http.setTimeout(3000);
+            http.begin(nfcEndpoint);
+            http.addHeader("Content-Type", "application/json");
+
+            String jsonPayload = "{\"uid\":\"" + scannedUID + "\"}";
+            Serial.println("Verifying with Server: " + jsonPayload);
+
+            int httpResponseCode = http.POST(jsonPayload);
+
+            if (httpResponseCode == 200) {
+                Serial.println("Server Approved! Sending 'D' to MSP430.");
+                Serial2.print('D');
+            } else {
+                Serial.print("Server Denied. HTTP Code: ");
+                Serial.println(httpResponseCode);
+                String response = http.getString();
+                Serial.println("Reason: " + response);
+            }
+
+            http.end();
+        } else {
+            Serial.println("Error: Wi-Fi Disconnected");
+        }
+
+        delay(3000);
+    }
+}
+
+void setup() {
+    Serial.begin(115200);
     Serial2.begin(9600, SERIAL_8N1, MSP430_RX_PIN, MSP430_TX_PIN);
 
-    // 3. Initialize the NFC module using your custom function
     init_nfc();
-    
-    Serial.println("ESP32 Booted. Waiting for authorized card tap...");
+
+    Serial.print("Connecting to Wi-Fi");
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.println("\nConnected to Wi-Fi! IP Address: ");
+    Serial.println(WiFi.localIP());
 }
 
 void loop() {
-    // Check if the correct card has been tapped
-    if (check_nfc_card()) {
-        
-        Serial.println("Authorized Card Detected! Dispensing...");
-
-        // Send a single character 'D' to trigger the MSP430 FSM
-        Serial2.print('D'); 
-        
-        // 3-second delay to prevent spamming the UART buffer if the card is held down
-        delay(3000); 
-        
-        Serial.println("Ready for next tap...");
-    }
-    
-    // Background delay to keep the ESP32 watchdog timer stable
+    checkMSP430UART();
+    handleNFC();
     delay(50);
 }

@@ -1,44 +1,57 @@
 #include <msp430.h>
+#include <stdio.h>
+#include "stepper.h"
 #include "msp430uart.h"
-#include "linearActuator.h"
 #include "tempSensor.h"
+#include "irSensor.h"
 
-/*
- * Summary: Main application program for the SmartDispense MSP430 subsystem.
- * Initializes system peripherals, enters Low-Power Mode (LPM0) to conserve energy, 
- * and waits for a UART interrupt triggered by the ESP32 upon successful NFC 
- * patient authentication. Once awakened, it executes the linear actuator dispensing 
- * sequence and transmits a confirmation string back to the ESP32.
- * Code Structure: main()
- * Author(s): OWEN LIM, RACHELLE ANG RUI XUAN, GABRIEL LEE JUN RONG, LIEW HUI ZHONG, SYAFIQ BIN ISKANDAR ABDULLAH YEOH
- */
+volatile float latestTemp = 0.0f;
 
 int main(void) {
-    WDTCTL = WDTPW | WDTHOLD;         /* Stop watchdog timer to prevent resets (Author: TM1) */
-    
-    setup_pins_and_timer();           /* Initialize actuator pins and Timer_A PWM (Author: TM2) */
-    msp430_uart_init();               /* Initialize UART communication interface (Author: TM1) */
-    
-    __enable_interrupt();            /* Enable global maskable interrupts (Author: TM1) */
+    WDTCTL = WDTPW | WDTHOLD;
 
-    while(1) {
-        __bis_SR_register(LPM0_bits + GIE); /* Enter LPM0 with interrupts enabled */
+    stepper_init();
+    UART_Init();
+    TempSensor_Init();
+    IRSensor_Init();
 
-        TempSensor_Init();                   /* Start temperature monitoring (Author: TM3) */
-        
-        extend_actuator();            /* Push out the linear actuator to dispense pill (Author: TM3) */
-        __delay_cycles(2000000);      /* Wait ~2s for complete extension stroke (Author: TM3) */
-        
-        stop_actuator();              /* Stop motor briefly to protect components (Author: TM3) */
-        __delay_cycles(500000);       /* Brief pause before retraction (Author: TM3) */
-        
-        retract_actuator();           /* Pull back linear actuator to home position (Author: TM3) */
-        __delay_cycles(2000000);      /* Wait ~2s for complete retraction (Author: TM3) */
-        
-        stop_actuator();              /* Cut power to actuator (Author: TM3) */
-        
-        msp430_uart_send_string("DROP_SUCCESS\n"); /* Transmit drop confirmation back to ESP32 (Author: TM1) */
+    __bis_SR_register(GIE);
+
+    unsigned char sampleCount = 0;
+    unsigned long adcSum = 0;
+
+    while (1) {
+        if (dispense_flag == 1) {
+            dispense_flag = 0;
+            IRSensor_Arm();
+            stepper_rotate(512);
+            __delay_cycles(500000);
+            IRSensor_Disarm();
+
+            if (pill_detected_flag == 1) {
+                UART_SendString("DISPENSE:OK\n");
+            } else {
+                UART_SendString("DISPENSE:FAIL\n");
+            }
+        }
+
+        if (temp_ready_flag == 1) {
+            adcSum += rawADC;
+            temp_ready_flag = 0;
+            sampleCount++;
+
+            if (sampleCount >= 32) {
+                unsigned int avgADC = (unsigned int)(adcSum >> 5);
+                adcSum = 0;
+                sampleCount = 0;
+
+                latestTemp = ((float)avgADC / 4095.0f) * 330.0f;
+                unsigned long temp_x10 = ((unsigned long)avgADC * 3300UL) / 4095UL;
+                char buf[24];
+                sprintf(buf, "TEMP:%lu.%lu\n", temp_x10 / 10, temp_x10 % 10);
+                UART_SendString(buf);
+            }
+        }
     }
-    
     return 0;
 }

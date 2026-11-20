@@ -8,6 +8,7 @@ class User(db.Model):
     UUID              = db.Column(db.CHAR(5), primary_key=True)
     NAME              = db.Column(db.String(32), nullable=False)
     email             = db.Column(db.String(128), nullable=False, unique=True)
+    nric              = db.Column(db.String(20), nullable=False) 
     phoneNumber       = db.Column(db.String(20), nullable=False)
     MSId              = db.Column(db.CHAR(5), db.ForeignKey("medicalStaff.MSId"))
     NFCId             = db.Column(db.CHAR(20), unique=True)

@@ -5,6 +5,6 @@
 
 // Function declarations
 void init_nfc();
-bool check_nfc_card();
+String get_nfc_card();
 
 #endif

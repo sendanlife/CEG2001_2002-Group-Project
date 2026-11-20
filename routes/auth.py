@@ -1,7 +1,7 @@
-"""Authentication routes: signup, login, me."""
+import datetime
 import uuid as uuid_lib
 from sqlalchemy.exc import IntegrityError
-from flask import Blueprint, request
+from flask import Blueprint, current_app, request
 from database import db
 from models import User, Medical, MedicalStaff
 from utils import (
@@ -14,7 +14,6 @@ auth_bp = Blueprint("auth", __name__)
 
 @auth_bp.route("/auth/signup", methods=["POST"])
 def signup():
-    """POST /api/auth/signup — register a new patient account."""
     data = request.get_json() or {}
 
     missing = require_fields(data, ["name", "email", "password", "NFCid"])
@@ -23,13 +22,11 @@ def signup():
 
     email = data["email"].lower().strip()
 
-    # Reject duplicate email or NFC
     if User.query.filter_by(email=email).first():
         return error("Email already registered", 409)
     if User.query.filter_by(NFCId=data["NFCid"]).first():
         return error("NFC wristband already registered", 409)
 
-    # Verify MS000 fallback exists
     staff = MedicalStaff.query.get("MS000")
     if not staff:
         return error(
@@ -37,16 +34,15 @@ def signup():
             500,
         )
 
-    # Generate short IDs (5 chars for CHAR(5) columns)
     user_uuid = uuid_lib.uuid4().hex[:5].upper()
     medical_history_id = uuid_lib.uuid4().hex[:5].upper()
 
     try:
-        # ─── Step 1: Insert the user FIRST ─────────────
         user = User(
             UUID=user_uuid,
             NAME=data["name"].strip(),
             email=email,
+            nric=data.get("NRIC"),
             phoneNumber=data.get("phoneNumber", "").strip(),
             MSId=staff.MSId,
             NFCId=data["NFCid"].strip(),
@@ -54,9 +50,8 @@ def signup():
             passwordHash=hash_password(data["password"]),
         )
         db.session.add(user)
-        db.session.flush()   # ← KEY LINE: writes user before medical
+        db.session.flush()
 
-        # ─── Step 2: Now insert the medical record ─────
         medical = Medical(
             medicalHistoryId=medical_history_id,
             UUID=user_uuid,
@@ -64,8 +59,6 @@ def signup():
             medicalStaffName=staff.NAME,
         )
         db.session.add(medical)
-
-        # ─── Step 3: Commit both ───────────────────────
         db.session.commit()
 
     except IntegrityError as e:
@@ -75,7 +68,6 @@ def signup():
         db.session.rollback()
         return error(f"Database error: {str(e)}", 500)
 
-    # ─── Issue token ────────────────────────────────────
     token = create_token(user_uuid)
     return success(
         {"token": token, "user": user.to_dict()},
@@ -86,7 +78,6 @@ def signup():
 
 @auth_bp.route("/auth/login", methods=["POST"])
 def login():
-    """POST /api/auth/login — authenticate via email + password."""
     data = request.get_json() or {}
 
     missing = require_fields(data, ["email", "password"])
@@ -106,7 +97,6 @@ def login():
 
 @auth_bp.route("/auth/me", methods=["GET"])
 def me():
-    """GET /api/auth/me — return the current user from a Bearer token."""
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         return error("Missing token", 401)
@@ -120,3 +110,34 @@ def me():
         return error("User not found", 404)
 
     return success(user.to_dict())
+
+
+@auth_bp.route("/auth/verify-nfc", methods=["POST"])
+def verify_nfc():
+    data = request.get_json() or {}
+
+    missing = require_fields(data, ["uid"])
+    if missing:
+        return error(f"Missing fields: {', '.join(missing)}", 400)
+
+    scanned_uid = data["uid"].strip()
+    print(f"ESP32 scanned hardware card: {scanned_uid}")
+
+    user = User.query.filter_by(NFCId=scanned_uid).first()
+
+    if user:
+        print(f"Card Authorized. Patient: {user.NAME}. Sending approval to ESP32.")
+        current_app.config["LAST_DISPENSE_USER"] = user.NAME
+
+        return success(
+            {
+                "patientName": user.NAME,
+                "nfcId": user.NFCId,
+                "status": "approved"
+            },
+            "NFC authentication successful. Dispensing medication.",
+            200
+        )
+    else:
+        print(f"Card Denied. No user found with NFC ID: {scanned_uid}")
+        return error("Unauthorized card tap. NFC ID not found in database.", 403)
