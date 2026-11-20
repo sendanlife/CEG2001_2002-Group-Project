@@ -55,7 +55,6 @@ def create_user():
         nric=data.get("nric") or data.get("NRIC"),
         phoneNumber=data.get("phoneNumber", ""),
         MSId=data.get("MSId"),
-        nric=data.get("nric"),
         NFCId=data["NFCid"],
         medicalHistoryId=data["medicalHistoryId"],
     )

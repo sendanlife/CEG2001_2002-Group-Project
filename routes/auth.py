@@ -48,7 +48,6 @@ def signup():
             MSId=staff.MSId,
             NFCId=data["NFCid"].strip(),
             medicalHistoryId=medical_history_id,
-            nric=nric,
         )
         db.session.add(user)
         db.session.flush()

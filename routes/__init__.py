@@ -1,4 +1,4 @@
-from .auth import auth_bp        # ✅ the blueprint variable
+from .auth import auth_bp     
 from .user import users_bp
 from .pill import pills_bp
 from .schedule import schedule_bp
