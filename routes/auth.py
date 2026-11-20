@@ -128,6 +128,7 @@ def verify_nfc():
     if user:
         print(f"Card Authorized. Patient: {user.NAME}. Sending approval to ESP32.")
         current_app.config["LAST_DISPENSE_USER"] = user.NAME
+        current_app.config["LAST_DISPENSE_NFC"] = user.NFCId
 
         return success(
             {
