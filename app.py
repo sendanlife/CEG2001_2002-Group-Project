@@ -154,6 +154,21 @@ def create_app() -> Flask:
         except Exception as e:
             db.session.rollback()
             return jsonify({"success": False, "message": str(e)}), 500
+        
+    @app.route('/api/staff/patients/<uuid>', methods=['DELETE'])
+    def delete_patient(uuid):
+        try:
+            from models import User
+            patient = User.query.get(uuid)
+            if not patient:
+                return jsonify({"success": False, "message": "Patient not found"}), 404
+                
+            db.session.delete(patient)
+            db.session.commit()
+            return jsonify({"success": True, "message": "Patient deleted"})
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"success": False, "message": str(e)}), 500
 
     app.extensions["socketio"] = socketio
     socketio.init_app(app)

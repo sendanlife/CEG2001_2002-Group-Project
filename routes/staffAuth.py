@@ -133,6 +133,7 @@ def staff_dashboard():
             "NFCId": p.NFCId,
             "medicalHistoryId": p.medicalHistoryId,
             "medicalStaffName": medical.medicalStaffName if medical else "Unknown",
+            "nric": p.nric,
         })
 
     return success({

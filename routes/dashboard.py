@@ -60,6 +60,7 @@ def get_dashboard(uuid):
             "email": user.email,
             "phoneNumber": user.phoneNumber,
             "medicalStaffName": medical_staff_name,
+            "nric": user.nric,
         },
         "inventory": inventory_data,
         "schedules": schedule_data,

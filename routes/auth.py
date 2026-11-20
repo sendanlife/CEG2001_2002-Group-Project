@@ -43,7 +43,7 @@ def signup():
             UUID=user_uuid,
             NAME=data["name"].strip(),
             email=email,
-            nric=data.get("NRIC"),
+            nric=nric,
             phoneNumber=data.get("phoneNumber", "").strip(),
             MSId=staff.MSId,
             NFCId=data["NFCid"].strip(),
