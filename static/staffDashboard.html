@@ -47,6 +47,23 @@
         th { color: #888; font-weight: normal; font-size: 12px; text-transform: uppercase; }
         tr:hover { background: #f8f9fa; }
 
+        /* ─── STATUS BADGES ─────────────────────── */
+        .badge {
+            display: inline-block; padding: 4px 10px; border-radius: 20px;
+            font-size: 11px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.5px; white-space: nowrap;
+        }
+        .badge-ok       { background: #e6f9ee; color: #1e8449; }
+        .badge-low      { background: #fff4e0; color: #b9770e; }
+        .badge-empty    { background: #ffe6e6; color: #c0392b; }
+        .badge-na       { background: #f0f2f5; color: #888; }
+        .badge-loading  { background: #eef3ff; color: #2a5298; }
+        .temp-cell      { font-weight: 600; }
+        .temp-ok        { color: #1e8449; }
+        .temp-warn      { color: #b9770e; }
+        .temp-danger    { color: #c0392b; }
+        .pill-stack     { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+
         /* ─── MODAL ─────────────────────────────── */
         .modal {
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -137,11 +154,13 @@
                     <th>Email</th>
                     <th>Phone</th>
                     <th>NFC ID</th>
+                    <th>🌡️ Temp (°C)</th>
+                    <th>💊 Pill Status</th>
                     <th>Actions</th>
                 </tr>
             </thead>
             <tbody id="patients-list">
-                <tr><td colspan="6" style="text-align:center; color:#888;">Loading...</td></tr>
+                <tr><td colspan="8" style="text-align:center; color:#888;">Loading...</td></tr>
             </tbody>
         </table>
     </div>
@@ -168,8 +187,6 @@
                 <button type="button" class="btn-secondary" style="flex:0 0 auto; padding:10px 12px; margin-bottom: 14px;"
                         onclick="scanNFC()">Scan</button>
             </div>
-            <label>Temporary Password</label>
-            <input type="password" id="p-password" placeholder="Min 8 characters">
             <div class="modal-actions">
                 <button class="btn-secondary" onclick="closeModal('modal-add-patient')">Cancel</button>
                 <button class="btn-primary" onclick="addPatient()">Add Patient</button>
@@ -321,23 +338,96 @@
             const list = document.getElementById('patients-list');
             list.innerHTML = '';
             if (data.patients.length === 0) {
-                list.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#888;">No patients assigned yet.</td></tr>';
-            } else {
-                data.patients.forEach(p => {
-                    list.innerHTML += `
-                        <tr>
-                            <td>${p.UUID}</td>
-                            <td>${p.NAME}</td>
-                            <td>${p.email}</td>
-                            <td>${p.phoneNumber || '-'}</td>
-                            <td>${p.NFCId || '-'}</td>
-                            <td>
-                                <button style="padding:6px 12px; border:none; border-radius:6px; background:#2a5298; color:white; cursor:pointer;"
-                                    onclick="viewPatient('${p.UUID}')">View</button>
-                            </td>
-                        </tr>
-                    `;
-                });
+                list.innerHTML = '<tr><td colspan="8" style="text-align:center; color:#888;">No patients assigned yet.</td></tr>';
+                return;
+            }
+
+            // Render rows first with placeholders for temp / pill status
+            data.patients.forEach(p => {
+                list.innerHTML += `
+                    <tr id="row-${p.UUID}">
+                        <td>${p.UUID}</td>
+                        <td>${p.NAME}</td>
+                        <td>${p.email}</td>
+                        <td>${p.phoneNumber || '-'}</td>
+                        <td>${p.NFCId || '-'}</td>
+                        <td class="temp-cell" id="temp-${p.UUID}">
+                            <span class="badge badge-loading">Loading…</span>
+                        </td>
+                        <td id="pills-${p.UUID}">
+                            <span class="badge badge-loading">Loading…</span>
+                        </td>
+                        <td>
+                            <button style="padding:6px 12px; border:none; border-radius:6px; background:#2a5298; color:white; cursor:pointer;"
+                                onclick="viewPatient('${p.UUID}')">View</button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            // Fetch details for each patient in parallel to fill temp & pill status
+            await Promise.all(data.patients.map(p => loadPatientStatus(p.UUID)));
+        }
+
+        // ─── FETCH & RENDER TEMP + PILL STATUS FOR ONE PATIENT ─────
+        async function loadPatientStatus(uuid) {
+            const tempCell = document.getElementById(`temp-${uuid}`);
+            const pillsCell = document.getElementById(`pills-${uuid}`);
+            if (!tempCell || !pillsCell) return;
+
+            try {
+                const res = await apiFetch(`${API_URL}/staff/patients/${uuid}`);
+                const result = await res.json();
+                if (!result.success) throw new Error(result.message || 'Failed to load');
+
+                const data = result.data;
+
+                // ── Temperature ──────────────────────────────
+                // The backend should expose the dispenser temperature somewhere in
+                // data.patient, data.dispenserDetails, or a new data.temperature field.
+                // We check several likely locations so this works once the API is ready.
+                const rawTemp =
+                    data.temperature ??
+                    data.patient?.temperature ??
+                    data.patient?.temp ??
+                    data.dispenserDetails?.[0]?.temperature ??
+                    null;
+
+                if (rawTemp === null || rawTemp === undefined || isNaN(Number(rawTemp))) {
+                    tempCell.innerHTML = '<span class="badge badge-na">N/A</span>';
+                } else {
+                    const temp = Number(rawTemp);
+                    let cls = 'temp-ok';
+                    if (temp >= 30) cls = 'temp-danger';
+                    else if (temp >= 25) cls = 'temp-warn';
+                    tempCell.innerHTML = `<span class="${cls}">${temp.toFixed(1)}°C</span>`;
+                }
+
+                // ── Pill Status ──────────────────────────────
+                // Pill status is derived from inventory quantities + dispenser data:
+                //   EMPTY  → quantity === 0
+                //   LOW    → quantity > 0 && quantity <= LOW_THRESHOLD
+                //   OK     → quantity > LOW_THRESHOLD
+                const LOW_THRESHOLD = 5;
+                const inventory = data.inventory || [];
+
+                if (inventory.length === 0) {
+                    pillsCell.innerHTML = '<span class="badge badge-na">No pills</span>';
+                } else {
+                    pillsCell.innerHTML = '<div class="pill-stack">' +
+                        inventory.map(p => {
+                            const qty = Number(p.quantity) || 0;
+                            let cls = 'badge-ok', label = 'OK';
+                            if (qty === 0) { cls = 'badge-empty'; label = 'Empty'; }
+                            else if (qty <= LOW_THRESHOLD) { cls = 'badge-low'; label = 'Low'; }
+                            return `<div><span class="badge ${cls}">${label}</span> ${p.pillName} <small>(${qty})</small></div>`;
+                        }).join('') +
+                    '</div>';
+                }
+            } catch (err) {
+                console.error('Status load failed for', uuid, err);
+                tempCell.innerHTML = '<span class="badge badge-na">Error</span>';
+                pillsCell.innerHTML = '<span class="badge badge-na">Error</span>';
             }
         }
 
@@ -457,8 +547,6 @@
             clearErrors();
             const payload = {
                 pillName: document.getElementById('pill-name').value.trim(),
-                // weight: parseFloat(document.getElementById('pill-weight').value),
-                // quantity: parseInt(document.getElementById('pill-quantity').value) || 0,
                 DESCRIPTION: document.getElementById('pill-desc').value.trim(),
             };
 
@@ -474,8 +562,6 @@
             toast('success', 'Pill added to catalogue');
             closeModal('modal-add-pill');
             document.getElementById('pill-name').value = '';
-            // document.getElementById('pill-weight').value = '';
-            // document.getElementById('pill-quantity').value = 0;
             document.getElementById('pill-desc').value = '';
         }
 
@@ -500,6 +586,7 @@
 
             toast('success', 'Pill assigned');
             closeModal('modal-assign-pill');
+            loadPatientStatus(uuid); // refresh the status column
         }
 
         // ─── ADD SCHEDULE ─────────────────────────────
@@ -538,50 +625,104 @@
             const uuid = document.getElementById('view-patient').value;
             if (!uuid) return;
 
-            const res = await apiFetch(`${API_URL}/staff/patients/${uuid}`);
-            const result = await res.json();
-            if (!result.success) return;
-
-            const data = result.data;
             const detailBox = document.getElementById('patient-details');
+            detailBox.innerHTML = '<div style="text-align:center; padding:20px;">Loading...</div>';
 
-            const invRows = data.inventory.length === 0
-                ? '<tr><td colspan="3" style="color:#888;">No pills assigned</td></tr>'
-                : data.inventory.map(p => `
-                    <tr>
-                        <td>${p.pillName}</td>
-                        <td>${p.quantity}</td>
-                        <td>${p.pillsDose}</td>
-                    </tr>`).join('');
+            try {
+                const res = await apiFetch(`${API_URL}/staff/patients/${uuid}`);
+                const result = await res.json();
+                
+                // Check if the API call was successful
+                if (!result.success) {
+                    detailBox.innerHTML = `<div style="color:#c0392b; padding:15px; background:#ffe6e6; border-radius:8px;">Error loading details: ${result.message || 'Unknown error'}</div>`;
+                    return;
+                }
 
-            const schedRows = data.schedules.length === 0
-                ? '<tr><td colspan="4" style="color:#888;">No schedules</td></tr>'
-                : data.schedules.map(s => `
-                    <tr>
-                        <td>${s.timing}</td>
-                        <td>${s.pillName}</td>
-                        <td>${s.dispenseAmount}</td>
-                        <td>${s.onRepeat || 'Daily'}</td>
-                    </tr>`).join('');
+                const data = result.data;
 
-            detailBox.innerHTML = `
-                <div style="background:#f8f9fa; padding:15px; border-radius:8px; margin-bottom:15px;">
-                    <strong>${data.patient.NAME}</strong><br>
-                    <small>${data.patient.email} · ${data.patient.phoneNumber || 'no phone'}</small>
-                </div>
+                // Add a safety check in case inventory or schedules are missing from the API response
+                const inventory = data.inventory || [];
+                const schedules = data.schedules || [];
+                const dispenserDetails = data.dispenserDetails || [];
 
-                <h3 style="font-size:14px; color:#2a5298; margin: 15px 0 8px;">Assigned Pills</h3>
-                <table>
-                    <thead><tr><th>Pill</th><th>Qty</th><th>Dose</th></tr></thead>
-                    <tbody>${invRows}</tbody>
-                </table>
+                // Temperature in the detail modal too
+                const rawTemp =
+                    data.temperature ??
+                    data.patient?.temperature ??
+                    data.patient?.temp ??
+                    dispenserDetails?.[0]?.temperature ??
+                    null;
+                    
+                const tempDisplay = (rawTemp === null || isNaN(Number(rawTemp)))
+                    ? 'N/A'
+                    : `${Number(rawTemp).toFixed(1)}°C`;
 
-                <h3 style="font-size:14px; color:#2a5298; margin: 15px 0 8px;">Schedules</h3>
-                <table>
-                    <thead><tr><th>Time</th><th>Pill</th><th>Amount</th><th>Days</th></tr></thead>
-                    <tbody>${schedRows}</tbody>
-                </table>
-            `;
+                const invRows = inventory.length === 0
+                    ? '<tr><td colspan="3" style="color:#888;">No pills assigned</td></tr>'
+                    : inventory.map(p => {
+                        const qty = Number(p.quantity) || 0;
+                        let cls = 'badge-ok', label = 'OK';
+                        if (qty === 0) { cls = 'badge-empty'; label = 'Empty'; }
+                        else if (qty <= 5) { cls = 'badge-low'; label = 'Low'; }
+                        return `
+                        <tr>
+                            <td>${p.pillName}</td>
+                            <td>${p.quantity} <span class="badge ${cls}">${label}</span></td>
+                            <td>${p.pillsDose}</td>
+                        </tr>`;
+                    }).join('');
+
+                const schedRows = schedules.length === 0
+                    ? '<tr><td colspan="4" style="color:#888;">No schedules</td></tr>'
+                    : schedules.map(s => `
+                        <tr>
+                            <td>${s.timing}</td>
+                            <td>${s.pillName}</td>
+                            <td>${s.dispenseAmount}</td>
+                            <td>${s.onRepeat || 'Daily'}</td>
+                        </tr>`).join('');
+
+                detailBox.innerHTML = `
+                    <div style="background:#f8f9fa; padding:15px; border-radius:8px; margin-bottom:15px;">
+                        <strong>${data.patient.NAME}</strong><br>
+                        <small>${data.patient.email} · ${data.patient.phoneNumber || 'no phone'}</small>
+                        <div style="margin-top:8px;">
+                            🌡️ Dispenser Temperature: <strong>${tempDisplay}</strong>
+                        </div>
+                    </div>
+
+                    <h3 style="font-size:14px; color:#2a5298; margin: 15px 0 8px;">Assigned Pills</h3>
+                    <table>
+                        <thead><tr><th>Pill</th><th>Qty</th><th>Dose</th></tr></thead>
+                        <tbody>${invRows}</tbody>
+                    </table>
+
+                    <h3 style="font-size:14px; color:#2a5298; margin: 15px 0 8px;">Schedules</h3>
+                    <table>
+                        <thead><tr><th>Time</th><th>Pill</th><th>Amount</th><th>Days</th></tr></thead>
+                        <tbody>${schedRows}</tbody>
+                    </table>
+
+                    <h3 style="font-size:14px; color:#2a5298; margin:15px 0 8px;">Dispenser Details</h3>
+                    <table>
+                        <thead><tr><th>Pill</th><th>Dispensed</th><th>Taken</th><th>Remaining</th></tr></thead>
+                        <tbody>
+                            ${dispenserDetails.length === 0
+                                ? '<tr><td colspan="4" style="color:#888;">No dispenser data</td></tr>'
+                                : dispenserDetails.map(d => `
+                                    <tr>
+                                        <td>${d.pillName}</td>
+                                        <td>${d.dispensed}</td>
+                                        <td>${d.taken}</td>
+                                        <td>${d.remaining}</td>
+                                    </tr>`).join('')}
+                        </tbody>
+                    </table>
+                `;
+            } catch (err) {
+                console.error(err);
+                detailBox.innerHTML = `<div style="color:#c0392b; padding:15px; background:#ffe6e6; border-radius:8px;">Failed to load patient details. Check console for errors.</div>`;
+            }
         }
 
         function logout() {
