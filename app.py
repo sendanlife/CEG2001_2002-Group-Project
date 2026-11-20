@@ -1,5 +1,5 @@
 """MediTrack IoT Backend - Main entry point."""
-from flask import Flask, send_from_directory
+from flask import Flask, jsonify, send_from_directory
 from flask_cors import CORS
 from flask_socketio import SocketIO
 from config import Config
@@ -77,6 +77,56 @@ def create_app() -> Flask:
     @app.route("/health")
     def health():
         return {"status": "healthy", "service": "meditrack"}
+    
+    @app.route('/api/staff/schedules/<scheduleId>/toggle', methods=['PATCH'])
+    def toggle_schedule(scheduleId):
+        try:
+            from models import OnSchedule  # ✅ FIXED: Use correct model name
+            
+            schedule = OnSchedule.query.get(scheduleId)
+            if not schedule:
+                return jsonify({"success": False, "message": "Schedule not found"}), 404
+                
+            schedule.isActive = not schedule.isActive
+            db.session.commit()
+            
+            return jsonify({"success": True, "message": "Status toggled"})
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"success": False, "message": str(e)}), 500
+
+
+    @app.route('/api/staff/schedules/<scheduleId>', methods=['PUT'])
+    def update_schedule(scheduleId):
+        try:
+            from models import OnSchedule  # ✅ FIXED: Use correct model name
+            from datetime import datetime
+            
+            data = request.get_json()
+            schedule = OnSchedule.query.get(scheduleId)
+            if not schedule:
+                return jsonify({"success": False, "message": "Schedule not found"}), 404
+
+            # Update fields
+            schedule.pillsId = data.get('pillsId', schedule.pillsId)
+            schedule.pillsDose = data.get('pillsDose', schedule.pillsDose)
+            
+            # Parse time properly
+            if 'timing' in data and data['timing']:
+                try:
+                    schedule.timing = datetime.strptime(data['timing'], "%H:%M").time()
+                except ValueError:
+                    return jsonify({"success": False, "message": "Invalid time format"}), 400
+                    
+            schedule.dispenseAmount = data.get('dispenseAmount', schedule.dispenseAmount)
+            schedule.onRepeat = data.get('onRepeat', schedule.onRepeat)
+            schedule.isRepeat = data.get('isRepeat', schedule.isRepeat)
+
+            db.session.commit()
+            return jsonify({"success": True, "message": "Schedule updated"})
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"success": False, "message": str(e)}), 500
 
     app.extensions["socketio"] = socketio
     socketio.init_app(app)

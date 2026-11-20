@@ -265,6 +265,36 @@
         </div>
     </div>
 
+        <!-- EDIT SCHEDULE MODAL -->
+    <div class="modal" id="modal-edit-schedule">
+        <div class="modal-content">
+            <h2>✏️ Edit Schedule</h2>
+            <div class="error-box" id="err-edit-schedule"></div>
+            
+            <input type="hidden" id="edit-sched-id">
+            
+            <label>Pill</label>
+            <select id="edit-sched-pill"></select>
+            
+            <label>Pills per Dose</label>
+            <input type="number" id="edit-sched-dose" value="1" min="1">
+            
+            <label>Time (HH:MM)</label>
+            <input type="time" id="edit-sched-timing">
+            
+            <label>Dispense Amount</label>
+            <input type="number" id="edit-sched-amount" value="1" min="1">
+            
+            <label>Repeat Days (comma-separated, leave empty for daily)</label>
+            <input type="text" id="edit-sched-days" placeholder="MON,WED,FRI">
+            
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('modal-edit-schedule')">Cancel</button>
+                <button class="btn-primary" onclick="saveScheduleEdit()">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         let serialPort = null;
         let serialReader = null;
@@ -621,7 +651,7 @@
             loadPatientDetails();
         }
 
-        async function loadPatientDetails() {
+                async function loadPatientDetails() {
             const uuid = document.getElementById('view-patient').value;
             if (!uuid) return;
 
@@ -632,31 +662,21 @@
                 const res = await apiFetch(`${API_URL}/staff/patients/${uuid}`);
                 const result = await res.json();
                 
-                // Check if the API call was successful
                 if (!result.success) {
-                    detailBox.innerHTML = `<div style="color:#c0392b; padding:15px; background:#ffe6e6; border-radius:8px;">Error loading details: ${result.message || 'Unknown error'}</div>`;
+                    detailBox.innerHTML = `<div style="color:#c0392b; padding:15px; background:#ffe6e6; border-radius:8px;">Error: ${result.message}</div>`;
                     return;
                 }
 
                 const data = result.data;
-
-                // Add a safety check in case inventory or schedules are missing from the API response
                 const inventory = data.inventory || [];
                 const schedules = data.schedules || [];
                 const dispenserDetails = data.dispenserDetails || [];
 
-                // Temperature in the detail modal too
-                const rawTemp =
-                    data.temperature ??
-                    data.patient?.temperature ??
-                    data.patient?.temp ??
-                    dispenserDetails?.[0]?.temperature ??
-                    null;
-                    
-                const tempDisplay = (rawTemp === null || isNaN(Number(rawTemp)))
-                    ? 'N/A'
-                    : `${Number(rawTemp).toFixed(1)}°C`;
+                // Temperature
+                const rawTemp = data.temperature ?? data.patient?.temperature ?? dispenserDetails?.[0]?.temperature ?? null;
+                const tempDisplay = (rawTemp === null || isNaN(Number(rawTemp))) ? 'N/A' : `${Number(rawTemp).toFixed(1)}°C`;
 
+                // Inventory Rows
                 const invRows = inventory.length === 0
                     ? '<tr><td colspan="3" style="color:#888;">No pills assigned</td></tr>'
                     : inventory.map(p => {
@@ -664,31 +684,68 @@
                         let cls = 'badge-ok', label = 'OK';
                         if (qty === 0) { cls = 'badge-empty'; label = 'Empty'; }
                         else if (qty <= 5) { cls = 'badge-low'; label = 'Low'; }
-                        return `
-                        <tr>
+                        return `<tr>
                             <td>${p.pillName}</td>
                             <td>${p.quantity} <span class="badge ${cls}">${label}</span></td>
                             <td>${p.pillsDose}</td>
                         </tr>`;
                     }).join('');
 
+                // SCHEDULE ROWS (UPDATED)
                 const schedRows = schedules.length === 0
-                    ? '<tr><td colspan="4" style="color:#888;">No schedules</td></tr>'
-                    : schedules.map(s => `
+                    ? '<tr><td colspan="6" style="color:#888;">No schedules</td></tr>'
+                    : schedules.map(s => {
+                        // Build comma-separated days, or "Daily"
+                        let daysDisplay = s.onRepeat ? s.onRepeat.replace(/,/g, ', ') : 'Daily';
+                        
+                        // Status badge
+                        const statusBadge = s.isActive 
+                            ? '<span class="badge badge-ok">Active</span>' 
+                            : '<span class="badge badge-empty">Disabled</span>';
+                        
+                        // Toggle button (Enable/Disable)
+                        const toggleBtnText = s.isActive ? 'Disable' : 'Enable';
+                        const toggleBtnClass = s.isActive ? 'badge-low' : 'badge-ok'; 
+                        const toggleStyle = s.isActive 
+                            ? 'background:#fff4e0; color:#b9770e; border:1px solid #b9770e;' 
+                            : 'background:#e6f9ee; color:#1e8449; border:1px solid #1e8449;';
+
+                        return `
                         <tr>
+                            <td>${statusBadge}</td>
                             <td>${s.timing}</td>
                             <td>${s.pillName}</td>
                             <td>${s.dispenseAmount}</td>
-                            <td>${s.onRepeat || 'Daily'}</td>
+                            <td>${daysDisplay}</td>
+                            <td style="display:flex; gap:6px;">
+                                <button onclick="toggleSchedule('${s.scheduleId}', ${s.isActive}, '${uuid}')"
+                                    style="padding:4px 8px; border-radius:4px; cursor:pointer; font-size:12px; font-weight:600; ${toggleStyle}">
+                                    ${toggleBtnText}
+                                </button>
+                                <button onclick="openEditScheduleModal('${JSON.stringify(s).replace(/"/g, '&quot;')}')"
+                                    style="padding:4px 8px; border-radius:4px; cursor:pointer; font-size:12px; font-weight:600; background:#eef3ff; color:#2a5298; border:1px solid #2a5298;">
+                                    Edit
+                                </button>
+                            </td>
+                        </tr>`;
+                    }).join('');
+
+                // Dispenser Rows
+                const dispRows = dispenserDetails.length === 0
+                    ? '<tr><td colspan="4" style="color:#888;">No dispenser data</td></tr>'
+                    : dispenserDetails.map(d => `
+                        <tr>
+                            <td>${d.pillName}</td>
+                            <td>${d.dispensed}</td>
+                            <td>${d.taken}</td>
+                            <td>${d.remaining}</td>
                         </tr>`).join('');
 
                 detailBox.innerHTML = `
                     <div style="background:#f8f9fa; padding:15px; border-radius:8px; margin-bottom:15px;">
                         <strong>${data.patient.NAME}</strong><br>
                         <small>${data.patient.email} · ${data.patient.phoneNumber || 'no phone'}</small>
-                        <div style="margin-top:8px;">
-                            🌡️ Dispenser Temperature: <strong>${tempDisplay}</strong>
-                        </div>
+                        <div style="margin-top:8px;">🌡️ Temp: <strong>${tempDisplay}</strong></div>
                     </div>
 
                     <h3 style="font-size:14px; color:#2a5298; margin: 15px 0 8px;">Assigned Pills</h3>
@@ -699,29 +756,228 @@
 
                     <h3 style="font-size:14px; color:#2a5298; margin: 15px 0 8px;">Schedules</h3>
                     <table>
-                        <thead><tr><th>Time</th><th>Pill</th><th>Amount</th><th>Days</th></tr></thead>
+                        <thead><tr><th>Status</th><th>Time</th><th>Pill</th><th>Amount</th><th>Days</th><th>Actions</th></tr></thead>
                         <tbody>${schedRows}</tbody>
                     </table>
 
                     <h3 style="font-size:14px; color:#2a5298; margin:15px 0 8px;">Dispenser Details</h3>
                     <table>
                         <thead><tr><th>Pill</th><th>Dispensed</th><th>Taken</th><th>Remaining</th></tr></thead>
-                        <tbody>
-                            ${dispenserDetails.length === 0
-                                ? '<tr><td colspan="4" style="color:#888;">No dispenser data</td></tr>'
-                                : dispenserDetails.map(d => `
-                                    <tr>
-                                        <td>${d.pillName}</td>
-                                        <td>${d.dispensed}</td>
-                                        <td>${d.taken}</td>
-                                        <td>${d.remaining}</td>
-                                    </tr>`).join('')}
-                        </tbody>
+                        <tbody>${dispRows}</tbody>
                     </table>
                 `;
             } catch (err) {
                 console.error(err);
-                detailBox.innerHTML = `<div style="color:#c0392b; padding:15px; background:#ffe6e6; border-radius:8px;">Failed to load patient details. Check console for errors.</div>`;
+                detailBox.innerHTML = `<div style="color:#c0392b; padding:15px; background:#ffe6e6; border-radius:8px;">Failed to load details.</div>`;
+            }
+        }        async function loadPatientDetails() {
+            const uuid = document.getElementById('view-patient').value;
+            if (!uuid) return;
+
+            const detailBox = document.getElementById('patient-details');
+            detailBox.innerHTML = '<div style="text-align:center; padding:20px;">Loading...</div>';
+
+            try {
+                const res = await apiFetch(`${API_URL}/staff/patients/${uuid}`);
+                const result = await res.json();
+                
+                if (!result.success) {
+                    detailBox.innerHTML = `<div style="color:#c0392b; padding:15px; background:#ffe6e6; border-radius:8px;">Error: ${result.message}</div>`;
+                    return;
+                }
+
+                const data = result.data;
+                const inventory = data.inventory || [];
+                const schedules = data.schedules || [];
+                const dispenserDetails = data.dispenserDetails || [];
+
+                // Temperature
+                const rawTemp = data.temperature ?? data.patient?.temperature ?? dispenserDetails?.[0]?.temperature ?? null;
+                const tempDisplay = (rawTemp === null || isNaN(Number(rawTemp))) ? 'N/A' : `${Number(rawTemp).toFixed(1)}°C`;
+
+                // Inventory Rows
+                const invRows = inventory.length === 0
+                    ? '<tr><td colspan="3" style="color:#888;">No pills assigned</td></tr>'
+                    : inventory.map(p => {
+                        const qty = Number(p.quantity) || 0;
+                        let cls = 'badge-ok', label = 'OK';
+                        if (qty === 0) { cls = 'badge-empty'; label = 'Empty'; }
+                        else if (qty <= 5) { cls = 'badge-low'; label = 'Low'; }
+                        return `<tr>
+                            <td>${p.pillName}</td>
+                            <td>${p.quantity} <span class="badge ${cls}">${label}</span></td>
+                            <td>${p.pillsDose}</td>
+                        </tr>`;
+                    }).join('');
+
+                // SCHEDULE ROWS
+                                // SCHEDULE ROWS
+                const schedRows = schedules.length === 0
+                ? '<tr><td colspan="6" style="color:#888;">No schedules</td></tr>'
+                : schedules.map(s => {
+                    // Handle SQL time formatting
+                    const timeDisplay = s.timing ? s.timing.substring(0, 5) : '-';
+                    let daysDisplay = s.onRepeat ? s.onRepeat.replace(/,/g, ', ') : 'Daily';
+                    
+                    const statusBadge = s.isActive 
+                        ? '<span class="badge badge-ok">Active</span>' 
+                        : '<span class="badge badge-empty">Disabled</span>';
+                    
+                    const toggleBtnText = s.isActive ? 'Disable' : 'Enable';
+                    const toggleStyle = s.isActive 
+                        ? 'background:#fff4e0; color:#b9770e; border:1px solid #b9770e;' 
+                        : 'background:#e6f9ee; color:#1e8449; border:1px solid #1e8449;';
+
+                    // ✅ FIXED: Store schedule in a global variable instead of injecting JSON into HTML
+                    // This prevents syntax errors from quotes in the JSON
+                    window.schedulesCache = window.schedulesCache || {};
+                    window.schedulesCache[s.scheduleId] = s;
+
+                    return `
+                    <tr>
+                        <td>${statusBadge}</td>
+                        <td>${timeDisplay}</td>
+                        <td>${s.pillName}</td>
+                        <td>${s.dispenseAmount}</td>
+                        <td>${daysDisplay}</td>
+                        <td style="display:flex; gap:6px;">
+                            <button onclick="toggleSchedule('${s.scheduleId}', ${s.isActive}, '${uuid}')"
+                                style="padding:4px 8px; border-radius:4px; cursor:pointer; font-size:12px; font-weight:600; ${toggleStyle}">
+                                ${toggleBtnText}
+                            </button>
+                            <!-- ✅ FIXED: Just pass the ID, and fetch it from the cache -->
+                            <button onclick="openEditScheduleModal('${s.scheduleId}')"
+                                style="padding:4px 8px; border-radius:4px; cursor:pointer; font-size:12px; font-weight:600; background:#eef3ff; color:#2a5298; border:1px solid #2a5298;">
+                                Edit
+                            </button>
+                        </td>
+                    </tr>`;
+                }).join('');
+
+                // Dispenser Rows
+                const dispRows = dispenserDetails.length === 0
+                    ? '<tr><td colspan="4" style="color:#888;">No dispenser data</td></tr>'
+                    : dispenserDetails.map(d => `
+                        <tr>
+                            <td>${d.pillName}</td>
+                            <td>${d.dispensed}</td>
+                            <td>${d.taken}</td>
+                            <td>${d.remaining}</td>
+                        </tr>`).join('');
+
+                detailBox.innerHTML = `
+                    <div style="background:#f8f9fa; padding:15px; border-radius:8px; margin-bottom:15px;">
+                        <strong>${data.patient.NAME}</strong><br>
+                        <small>${data.patient.email} · ${data.patient.phoneNumber || 'no phone'}</small>
+                        <div style="margin-top:8px;">🌡️ Temp: <strong>${tempDisplay}</strong></div>
+                    </div>
+
+                    <h3 style="font-size:14px; color:#2a5298; margin: 15px 0 8px;">Assigned Pills</h3>
+                    <table>
+                        <thead><tr><th>Pill</th><th>Qty</th><th>Dose</th></tr></thead>
+                        <tbody>${invRows}</tbody>
+                    </table>
+
+                    <h3 style="font-size:14px; color:#2a5298; margin: 15px 0 8px;">Schedules</h3>
+                    <table>
+                        <thead><tr><th>Status</th><th>Time</th><th>Pill</th><th>Amount</th><th>Days</th><th>Actions</th></tr></thead>
+                        <tbody>${schedRows}</tbody>
+                    </table>
+
+                    <h3 style="font-size:14px; color:#2a5298; margin:15px 0 8px;">Dispenser Details</h3>
+                    <table>
+                        <thead><tr><th>Pill</th><th>Dispensed</th><th>Taken</th><th>Remaining</th></tr></thead>
+                        <tbody>${dispRows}</tbody>
+                    </table>
+                `;
+            } catch (err) {
+                console.error(err);
+                detailBox.innerHTML = `<div style="color:#c0392b; padding:15px; background:#ffe6e6; border-radius:8px;">Failed to load details.</div>`;
+            }
+        }
+
+                // ─── TOGGLE SCHEDULE (ENABLE/DISABLE) ─────────
+        async function toggleSchedule(scheduleId, currentStatus, uuid) {
+            try {
+                const res = await apiFetch(`${API_URL}/staff/schedules/${scheduleId}/toggle`, {
+                    method: 'PATCH', // or PUT depending on your backend route
+                    headers: { 'Content-Type': 'application/json' },
+                });
+                const result = await res.json();
+
+                if (!result.success) {
+                    toast('error', result.message || 'Failed to toggle schedule');
+                    return;
+                }
+
+                toast('success', `Schedule ${currentStatus ? 'Disabled' : 'Enabled'}`);
+                loadPatientDetails(); // Reload the modal
+                loadPatientStatus(uuid); // Update the main table status just in case
+            } catch (err) {
+                console.error(err);
+                toast('error', 'Network error while toggling schedule');
+            }
+        }
+
+                // ─── OPEN EDIT SCHEDULE MODAL ─────────────────
+        function openEditScheduleModal(scheduleId) {
+            // Retrieve the schedule from the cache we created earlier
+            const s = window.schedulesCache[scheduleId];
+            if (!s) return;
+
+            // Populate dropdowns
+            const pillOptions = pillsCache.map(p =>
+                `<option value="${p.pillsId}" ${p.pillsId === s.pillsId ? 'selected' : ''}>${p.pillName} (${p.pillsId})</option>`
+            ).join('');
+            document.getElementById('edit-sched-pill').innerHTML = pillOptions;
+
+            // Fill form fields
+            document.getElementById('edit-sched-id').value = s.scheduleId;
+            document.getElementById('edit-sched-dose').value = s.pillsDose || 1;
+            
+            // Make sure we only pass "HH:MM" to the <input type="time">
+            const timeVal = s.timing ? s.timing.substring(0, 5) : '08:00';
+            document.getElementById('edit-sched-timing').value = timeVal; 
+            
+            document.getElementById('edit-sched-amount').value = s.dispenseAmount || 1;
+            document.getElementById('edit-sched-days').value = s.onRepeat || '';
+            
+            openModal('modal-edit-schedule');
+        }
+
+        // ─── SAVE SCHEDULE EDIT ───────────────────────
+        async function saveScheduleEdit() {
+            clearErrors();
+            const scheduleId = document.getElementById('edit-sched-id').value;
+            const payload = {
+                pillsId: document.getElementById('edit-sched-pill').value,
+                pillsDose: parseInt(document.getElementById('edit-sched-dose').value) || 1,
+                timing: document.getElementById('edit-sched-timing').value,
+                dispenseAmount: parseInt(document.getElementById('edit-sched-amount').value) || 1,
+                onRepeat: document.getElementById('edit-sched-days').value.trim() || null,
+                // Preserve isRepeat from the original (you can expose this in UI if needed)
+                isRepeat: true 
+            };
+
+            try {
+                const res = await apiFetch(`${API_URL}/staff/schedules/${scheduleId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                const result = await res.json();
+
+                if (!result.success) {
+                    showErr('err-edit-schedule', result.message || 'Failed to update schedule');
+                    return;
+                }
+
+                toast('success', 'Schedule updated successfully');
+                closeModal('modal-edit-schedule');
+                loadPatientDetails(); // Refresh modal
+            } catch (err) {
+                console.error(err);
+                showErr('err-edit-schedule', 'Network error');
             }
         }
 
