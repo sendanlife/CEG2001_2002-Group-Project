@@ -52,6 +52,7 @@ def create_user():
         UUID=data["UUID"],
         NAME=data["NAME"],
         email=data["email"].lower(),
+        nric=data.get("nric") or data.get("NRIC"),
         phoneNumber=data.get("phoneNumber", ""),
         MSId=data.get("MSId"),
         nric=data.get("nric"),

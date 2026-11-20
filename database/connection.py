@@ -37,3 +37,10 @@ def init_db(app):
 def get_db():
     """Return the SQLAlchemy db instance."""
     return db
+
+class DispenseHistory(db.Model):
+    __tablename__ = 'dispense_history'
+    id = db.Column(db.Integer, primary_key=True)
+    nfc_id = db.Column(db.String(50), nullable=False)
+    status = db.Column(db.String(20), nullable=False)
+    timestamp = db.Column(db.DateTime, nullable=False)
