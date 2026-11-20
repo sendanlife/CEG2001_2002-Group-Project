@@ -11,7 +11,6 @@ class User(db.Model):
     MSId              = db.Column(db.CHAR(5), db.ForeignKey("medicalStaff.MSId"))
     NFCId             = db.Column(db.CHAR(20), unique=True)
     medicalHistoryId  = db.Column(db.CHAR(5))
-    passwordHash      = db.Column(db.String(255))
 
     def to_dict(self, include_password=False):
         data = {
@@ -24,6 +23,4 @@ class User(db.Model):
             "NFCId": self.NFCId,
             "medicalHistoryId": self.medicalHistoryId,
         }
-        if include_password:
-            data["passwordHash"] = self.passwordHash
         return data

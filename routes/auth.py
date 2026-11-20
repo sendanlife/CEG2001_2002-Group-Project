@@ -17,7 +17,7 @@ def signup():
     """POST /api/auth/signup — register a new patient account."""
     data = request.get_json() or {}
 
-    missing = require_fields(data, ["name", "email", "password", "NFCid", "nric"])
+    missing = require_fields(data, ["name", "email", "NFCid", "nric"])
     if missing:
         return error(f"Missing fields: {', '.join(missing)}", 400)
 
@@ -52,11 +52,10 @@ def signup():
             MSId=staff.MSId,
             NFCId=data["NFCid"].strip(),
             medicalHistoryId=medical_history_id,
-            passwordHash=hash_password(data["password"]),
             nric=nric,
         )
         db.session.add(user)
-        db.session.flush()   # ← KEY LINE: writes user before medical
+        db.session.flush()
 
         # ─── Step 2: Now insert the medical record ─────
         medical = Medical(

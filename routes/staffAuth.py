@@ -150,7 +150,7 @@ def staff_add_patient():
         return error("Invalid or missing token", 401)
 
     data = request.get_json() or {}
-    missing = require_fields(data, ["name", "email", "nric", "NFCid", "password"])
+    missing = require_fields(data, ["name", "email", "nric", "NFCid"])
     if missing:
         return error(f"Missing fields: {', '.join(missing)}", 400)
 
@@ -181,7 +181,6 @@ def staff_add_patient():
             MSId=staff.MSId,
             NFCId=data["NFCid"].strip(),
             medicalHistoryId=medical_history_id,
-            passwordHash=hash_password(data["password"]),
         )
         db.session.add(user)
         db.session.flush()
