@@ -57,72 +57,34 @@ def create_app() -> Flask:
     def receive_dispense_status():
         data = request.get_json(silent=True) or {}
         status = str(data.get("status", "")).upper()
-        user_name = app.config.get("LAST_DISPENSE_USER", "Unknown")
+        is_ok = status == "OK"
 
-        if status == "OK":
-            event_payload = {
-                "eventType": "PILL_DISPENSED",
-                "userId": user_name,
-                "timestamp": datetime.datetime.now().isoformat(),
-            }
-        else:
-            event_payload = {
-                "eventType": "DISPENSE_ERROR",
-                "userId": user_name,
-                "timestamp": datetime.datetime.now().isoformat(),
-            }
+        user_name = app.config.get("LAST_DISPENSE_USER", "Unknown")
+        nfc_id = app.config.get("LAST_DISPENSE_NFC", "UNKNOWN")
+        now = datetime.datetime.now()
+
+        try:
+            new_log = DispenseHistory(
+                nfc_id=nfc_id,
+                status="SUCCESS" if is_ok else "FAILED",
+                timestamp=now,
+            )
+            db.session.add(new_log)
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print(f"MySQL Logging Error: {e}")
+
+        event_payload = {
+            "eventType": "PILL_DISPENSED" if is_ok else "DISPENSE_ERROR",
+            "userId": user_name,
+            "timestamp": now.isoformat(),
+        }
 
         socketio.emit("new-event", event_payload)
 
         return jsonify({"success": True, "data": event_payload}), 200
 
-    
-    @app.route("/api/verify_nfc", methods=["POST"])
-    def verify_nfc():
-        data = request.get_json()
-        uid = data.get("uid")
-
-        if uid == "4396B815":
-            try:
-                from models import DispenseHistory
-                new_log = DispenseHistory(
-                    nfc_id=uid,
-                    status="SUCCESS",
-                    timestamp=datetime.datetime.now()
-                )
-                db.session.add(new_log)
-                db.session.commit()
-            except Exception as e:
-                print(f"MySQL Logging Error: {e}")
-
-            socketio.emit("new-event", {
-                "eventType": "PILL_DISPENSED",
-                "userId": "Syafiq",
-                "timestamp": datetime.datetime.now().isoformat()
-            })
-
-            return jsonify({"status": "approved"}), 200
-
-        return jsonify({"status": "denied"}), 403
-
-    # @app.route("/")
-    # def indexPage():
-    #     return send_from_directory("static", "index.html")
-
-    # @app.route("/dashboard")
-    # def patientDashboardPage():
-    #     """Patient dashboard (requires login)."""
-    #     return send_from_directory("static", "dashboard.html")
-    # Might create a function where patients are able to change their password created by the staff.
-
-    # @app.route("/login")
-    # def loginPage():
-    #     return send_from_directory("static", "login.html")
-
-    # @app.route("/signup")
-    # def signupPage():
-    #     return send_from_directory("static", "signup.html")
-    # Might remove signup for patients in the future, as they should be created by staff.
     @app.route("/")
     def staffStartPage():
         return send_from_directory("static", "staffLogin.html")
