@@ -125,7 +125,7 @@
         <div class="card">
             <h2>🌡️ Storage Temperature</h2>
             <div class="temp-display" id="temp-value">--°C</div>
-            <p style="text-align:center; color:#888; margin-top:10px;">Safe range: 15°C - 25°C</p>
+            <p style="text-align:center; color:#888; margin-top:10px;">Safe range: 15°C - 30°C</p>
         </div>
 
         <div class="card">
@@ -299,7 +299,7 @@
                 const tempEl = document.getElementById('temp-value');
                 tempEl.textContent = `${event.temperature}°C`;
                 tempEl.className = 'temp-display ' +
-                    (event.temperature > 25 || event.temperature < 15 ? 'temp-warning' : 'temp-normal');
+                    (event.temperature > 30 || event.temperature < 15 ? 'temp-warning' : 'temp-normal');
             }
 
             if (event.eventType === 'PILL_DISPENSED') {

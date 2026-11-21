@@ -42,7 +42,7 @@ def create_app() -> Flask:
         except (TypeError, ValueError):
             return jsonify({"success": False, "message": "Invalid temperature value"}), 400
 
-        is_alert = temp < 15.0 or temp > 25.0
+        is_alert = temp < 15.0 or temp > 30.0
 
         event_payload = {
             "temperature": temp,
@@ -86,6 +86,41 @@ def create_app() -> Flask:
 
         return jsonify({"success": True, "data": event_payload}), 200
 
+    @app.route("/api/weight", methods=["POST"])
+    def receive_weight():
+        data = request.get_json(silent=True)
+        if not data or "weight" not in data:
+            return jsonify({"success": False, "message": "Missing weight"}), 400
+
+        try:
+            weight_g = max(0.0, round(float(data["weight"]), 1))
+        except (TypeError, ValueError):
+            return jsonify({"success": False, "message": "Invalid weight value"}), 400
+
+        pill_weight_g = 0.5
+        estimated_pills = int(round(weight_g / pill_weight_g))
+
+        if estimated_pills <= 0:
+            stock_state = "EMPTY_MACHINE"
+        elif estimated_pills < 10:
+            stock_state = "LOW_STOCK"
+        else:
+            stock_state = "STOCK_OK"
+
+        prev_state = app.config.get("LAST_STOCK_STATE")
+        app.config["LAST_STOCK_STATE"] = stock_state
+
+        event_payload = {
+            "weight": weight_g,
+            "estimatedPills": estimated_pills,
+            "eventType": stock_state if stock_state != prev_state else "STOCK_UPDATE",
+            "timestamp": datetime.datetime.now().isoformat(),
+        }
+
+        socketio.emit("new-event", event_payload)
+
+        return jsonify({"success": True, "data": event_payload}), 200
+    
     @app.route("/")
     def indexPage():
         return send_from_directory("static", "index.html")
