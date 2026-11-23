@@ -4,8 +4,18 @@
 #include "msp430uart.h"
 #include "tempSensor.h"
 #include "irSensor.h"
+#include "loadCell.h"
 
 volatile float latestTemp = 0.0f;
+volatile float latestWeight = 0.0f;
+
+static void sendWeightReading(long rawAvg) {
+    latestWeight = LoadCell_RawToGrams(rawAvg);
+    unsigned long weight_x10 = (unsigned long)(latestWeight * 10.0f + 0.5f);
+    char buf[24];
+    sprintf(buf, "WEIGHT:%lu.%lu\n", weight_x10 / 10, weight_x10 % 10);
+    UART_SendString(buf);
+}
 
 int main(void) {
     WDTCTL = WDTPW | WDTHOLD;
@@ -14,11 +24,16 @@ int main(void) {
     UART_Init();
     TempSensor_Init();
     IRSensor_Init();
+    LoadCell_Init();
 
     __bis_SR_register(GIE);
 
+    LoadCell_Tare(16);
+
     unsigned char sampleCount = 0;
     unsigned long adcSum = 0;
+    long weightSum = 0;
+    unsigned char weightCount = 0;
 
     while (1) {
         if (dispense_flag == 1) {
@@ -33,12 +48,24 @@ int main(void) {
             } else {
                 UART_SendString("DISPENSE:FAIL\n");
             }
+
+            long postSum = 0;
+            unsigned char i;
+            for (i = 0; i < 4; i++) {
+                postSum += LoadCell_ReadRaw();
+            }
+            sendWeightReading(postSum / 4);
         }
 
         if (temp_ready_flag == 1) {
             adcSum += rawADC;
             temp_ready_flag = 0;
             sampleCount++;
+
+            if ((sampleCount & 0x03) == 0 && LoadCell_IsReady()) {
+                weightSum += LoadCell_ReadRaw();
+                weightCount++;
+            }
 
             if (sampleCount >= 32) {
                 unsigned int avgADC = (unsigned int)(adcSum >> 5);
@@ -50,6 +77,12 @@ int main(void) {
                 char buf[24];
                 sprintf(buf, "TEMP:%lu.%lu\n", temp_x10 / 10, temp_x10 % 10);
                 UART_SendString(buf);
+
+                if (weightCount > 0) {
+                    sendWeightReading(weightSum / (long)weightCount);
+                    weightSum = 0;
+                    weightCount = 0;
+                }
             }
         }
     }

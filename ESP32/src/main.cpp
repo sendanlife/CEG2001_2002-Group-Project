@@ -13,6 +13,7 @@ const String baseUrl = "http://10.19.81.203:3000";
 const String nfcEndpoint = baseUrl + "/api/auth/verify-nfc";
 const String tempEndpoint = baseUrl + "/api/temperature";
 const String dispenseStatusEndpoint = baseUrl + "/api/dispense-status";
+const String weightEndpoint = baseUrl + "/api/weight";
 
 String uartBuffer = "";
 
@@ -50,6 +51,23 @@ void postDispenseStatusToFlask(const String& status) {
     http.end();
 }
 
+void postWeightToFlask(float weightG) {
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("Error: Wi-Fi Disconnected (weight skipped)");
+        return;
+    }
+
+    HTTPClient http;
+    http.setTimeout(3000);
+    http.begin(weightEndpoint);
+    http.addHeader("Content-Type", "application/json");
+
+    String payload = "{\"weight\":" + String(weightG, 1) + "}";
+    int httpCode = http.POST(payload);
+    Serial.printf("Weight %.1f g -> HTTP %d\n", weightG, httpCode);
+    http.end();
+}
+
 void checkMSP430UART() {
     while (Serial2.available()) {
         char c = Serial2.read();
@@ -61,6 +79,9 @@ void checkMSP430UART() {
             } else if (uartBuffer.startsWith("DISPENSE:")) {
                 String status = uartBuffer.substring(9);
                 postDispenseStatusToFlask(status);
+            } else if (uartBuffer.startsWith("WEIGHT:")) {
+                float weightG = uartBuffer.substring(7).toFloat();
+                postWeightToFlask(weightG);
             }
             uartBuffer = "";
         } else if (c != '\r') {
