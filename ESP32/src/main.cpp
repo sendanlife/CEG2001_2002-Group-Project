@@ -9,7 +9,7 @@
 const char* ssid = "yoe";
 const char* password = "pword123";
 
-const String baseUrl = "http://10.19.81.203:3000";
+const String baseUrl = "http://10.96.234.203:3000";
 const String nfcEndpoint = baseUrl + "/api/auth/verify-nfc";
 const String tempEndpoint = baseUrl + "/api/temperature";
 const String dispenseStatusEndpoint = baseUrl + "/api/dispense-status";
