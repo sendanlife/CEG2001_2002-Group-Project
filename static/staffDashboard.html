@@ -468,7 +468,7 @@
                     tempCell.innerHTML = `<span class="${cls}">${temp.toFixed(1)}°C</span>`;
                 }
 
-                const LOW_THRESHOLD = 10;
+                const LOW_THRESHOLD = 5;
                 const inventory = data.inventory || [];
 
                 if (inventory.length === 0) {
@@ -737,7 +737,7 @@
                         const qty = p.quantity || 0;
                         let cls = 'badge-ok', label = 'OK';
                         if (qty === 0) { cls = 'badge-empty'; label = 'Empty'; }
-                        else if (qty < 10) { cls = 'badge-low'; label = 'Low'; }
+                        else if (qty < 5) { cls = 'badge-low'; label = 'Low'; }
                         return `<tr>
                             <td>${p.pillName}</td>
                             <td>${p.quantity} <span class="badge ${cls}">${label}</span></td>
@@ -919,14 +919,18 @@
         socket.on('new-event', (event) => {
             console.log('Real-time event received:', event);
 
-            if (event.userId &&event.temperature !== undefined && event.temperature !== null) {
+            if (event.userId && event.temperature !== undefined && event.temperature !== null) {
                 const tempCell = document.getElementById(`temp-${event.userId}`);
                 if (tempCell) {
-                    const temp = event.temperature;
-                    let cls = 'temp-ok';
-                    if (temp >= 30) cls = 'temp-danger';
-                    else if (temp >= 25) cls = 'temp-warn';
+                    const temp = Number(event.temperature);
                     
+                    let cls = 'temp-ok'; // normal
+                    if (temp >= 30) {
+                        cls = 'temp-danger'; // too hot
+                    } else if (temp >= 25 || temp < 15) { 
+                        cls = 'temp-warn';   // warm or too cold
+                    }
+
                     tempCell.innerHTML = `<span class="${cls}">${temp.toFixed(1)}°C</span>`;
                 }
             }
