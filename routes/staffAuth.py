@@ -1,6 +1,8 @@
 """Medical staff authentication: signup, login, me, patients."""
 import uuid as uuid_lib
 from flask import Blueprint, request
+from models.dispenseLog import DispenseLog
+from models.dispenseLog import DispenseLog
 from sqlalchemy.exc import IntegrityError
 
 from database import db
@@ -388,9 +390,20 @@ def staff_get_patient(uuid):
         {**s.to_dict(), "pillName": p.pillName}
         for s, p in schedules
     ]
+    
+    dispenser_data = []
+    for inv, pill in inventory:
+        logs = DispenseLog.query.filter_by(UUID=uuid, pillsId=pill.pillsId).all()
+        dispensed = sum((l.amountDispense or 0) for l in logs)
+        dispenser_data.append({
+            "pillName": pill.pillName,
+            "dispensed": dispensed,
+            "remaining": inv.quantity,     # authoritative stock
+        })
 
     return success({
         "patient": patient.to_dict(),
         "inventory": inventory_data,
         "schedules": schedule_data,
+        "dispenserDetails": dispenser_data
     })
