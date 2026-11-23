@@ -530,7 +530,7 @@
                 email: document.getElementById('p-email').value.trim().toLowerCase(),
                 phoneNumber: document.getElementById('p-phone').value.trim(),
                 NFCid: document.getElementById('p-nfc').value.trim(),
-                nric: document.getElementById('p-nric').value.trim()
+                nric: document.getElementById('p-nric').value.trim().toUpperCase(),
             };
             
             const res = await apiFetch(`${API_URL}/staff/patients`, {

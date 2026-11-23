@@ -5,8 +5,7 @@ from flask import Blueprint, current_app, request
 from database import db
 from models import User, Medical, MedicalStaff
 from utils import (
-    success, error, require_fields,
-    hash_password, verify_password, create_token, decode_token,
+    success, error, require_fields, create_token, decode_token, hash_password, verify_password
 )
 
 auth_bp = Blueprint("auth", __name__)

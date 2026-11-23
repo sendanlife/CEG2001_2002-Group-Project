@@ -12,7 +12,8 @@ from models.pill import Pill
 from models.userPill import UserPill
 from utils import (
     success, error, require_fields,
-    hash_password, verify_password, create_token, decode_token,
+    hash_password, verify_password, create_token, decode_token, 
+    validate_email, validate_nric, validate_phone_number
 )
 
 staffauth_bp = Blueprint("staff", __name__)
@@ -153,34 +154,56 @@ def staff_add_patient():
         return error("Invalid or missing token", 401)
 
     data = request.get_json() or {}
+    
+    # Only require name, email, nric, and NFCid. Phone is optional.
     missing = require_fields(data, ["name", "email", "nric", "NFCid"])
     if missing:
         return error(f"Missing fields: {', '.join(missing)}", 400)
+        
+    # Clean the inputs first
+    email = data["email"].strip().lower()
+    nric = data["nric"].strip().upper()
+    phone = data.get("phoneNumber", "").strip()
+    
+    # Validate
+    if not validate_email(email):
+        return error("Invalid Email format.", 400)
+        
+    if not validate_nric(nric):
+        return error("Invalid NRIC. Must be in format S1234567A.", 400)
+        
+    # Only validate phone if they actually typed one
+    if phone and not validate_phone_number(phone):
+        return error("Invalid Phone Number. Must be a valid 8-digit SG number.", 400)
 
-    email = data["email"].lower().strip()
-
+    # Check for duplicates (using the cleaned email variable)
     if User.query.filter_by(email=email).first():
         return error("Email already registered", 409)
     if User.query.filter_by(NFCId=data["NFCid"]).first():
         return error("NFC wristband already registered", 409)
 
     # Generate short IDs
+    user_uuid = None
     for _ in range(10):
-        user_uuid = uuid_lib.uuid4().hex[:5].upper()
-        if not User.query.get(user_uuid):
+        temp_uuid = uuid_lib.uuid4().hex[:5].upper()
+        if not User.query.get(temp_uuid):
+            user_uuid = temp_uuid
             break
+            
+    medical_history_id = None
     for _ in range(10):
-        medical_history_id = uuid_lib.uuid4().hex[:5].upper()
-        if not Medical.query.get(medical_history_id):
+        temp_id = uuid_lib.uuid4().hex[:5].upper()
+        if not Medical.query.get(temp_id):
+            medical_history_id = temp_id
             break
 
     try:
         user = User(
             UUID=user_uuid,
             NAME=data["name"].strip(),
-            email=email,
-            nric=data["nric"].strip(), 
-            phoneNumber=data.get("phoneNumber", "").strip(),
+            email=email,                 # ✅ Uses the defined variable
+            nric=nric,                   # ✅ Saves as uppercase
+            phoneNumber=phone,
             MSId=staff.MSId,
             NFCId=data["NFCid"].strip(),
             medicalHistoryId=medical_history_id,
@@ -205,7 +228,6 @@ def staff_add_patient():
         return error(f"Database error: {str(e)}", 500)
 
     return success(user.to_dict(), "Patient added", 201)
-
 
 # ─── LIST PILLS (for the dropdowns) ──────────────────────
 @staffauth_bp.route("/staff/pills", methods=["GET"])
