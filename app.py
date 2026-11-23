@@ -1,4 +1,6 @@
 """MediTrack IoT Backend - Main entry point."""
+import datetime
+
 from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
 from flask_socketio import SocketIO
@@ -143,7 +145,7 @@ def create_app() -> Flask:
     @app.route('/api/staff/schedules/<scheduleId>/toggle', methods=['PATCH'])
     def toggle_schedule(scheduleId):
         try:
-            from models import OnSchedule  # ✅ FIXED: Use correct model name
+            from models import OnSchedule
             
             schedule = OnSchedule.query.get(scheduleId)
             if not schedule:
@@ -161,7 +163,7 @@ def create_app() -> Flask:
     @app.route('/api/staff/schedules/<scheduleId>', methods=['PUT'])
     def update_schedule(scheduleId):
         try:
-            from models import OnSchedule  # ✅ FIXED: Use correct model name
+            from models import OnSchedule
             from datetime import datetime
             
             data = request.get_json()

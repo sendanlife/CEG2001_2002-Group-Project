@@ -12,7 +12,7 @@ class User(db.Model):
     NFCId             = db.Column(db.CHAR(20), unique=True)
     medicalHistoryId  = db.Column(db.CHAR(5))
 
-    def to_dict(self, include_password=False):
+    def to_dict(self):
         data = {
             "UUID": self.UUID,
             "NAME": self.NAME,
