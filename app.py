@@ -43,16 +43,21 @@ def create_app() -> Flask:
         except (TypeError, ValueError):
             return jsonify({"success": False, "message": "Invalid temperature value"}), 400
 
+        user_uuid = data.get("userId") or app.config.get("ACTIVE_PATIENT_UUID")
+        app.config["LATEST_TEMP"] = temp
+        if user_uuid:
+            app.config.setdefault("PATIENT_TEMPS", {})[user_uuid] = temp
+
         is_alert = temp < 15.0 or temp > 30.0
 
         event_payload = {
+            "userId": user_uuid,
             "temperature": temp,
             "eventType": "TEMP_ALERT" if is_alert else "TEMP_UPDATE",
             "timestamp": datetime.datetime.now().isoformat(),
         }
 
         socketio.emit("new-event", event_payload)
-
         return jsonify({"success": True, "data": event_payload}), 200
 
     @app.route("/api/dispense-status", methods=["POST"])

@@ -928,19 +928,23 @@
         socket.on('new-event', (event) => {
             console.log('Real-time event received:', event);
 
-            if (event.userId && event.temperature !== undefined && event.temperature !== null) {
-                const tempCell = document.getElementById(`temp-${event.userId}`);
-                if (tempCell) {
-                    const temp = Number(event.temperature);
-                    
-                    let cls = 'temp-ok'; // normal
-                    if (temp >= 30) {
-                        cls = 'temp-danger'; // too hot
-                    } else if (temp >= 25 || temp < 15) { 
-                        cls = 'temp-warn';   // warm or too cold
-                    }
+            if (event.temperature !== undefined && event.temperature !== null) {
+                const temp = Number(event.temperature);
+                let cls = 'temp-ok';
+                if (temp >= 30) {
+                    cls = 'temp-danger';
+                } else if (temp >= 25 || temp < 15) {
+                    cls = 'temp-warn';
+                }
+                const html = `<span class="${cls}">${temp.toFixed(1)}°C</span>`;
 
-                    tempCell.innerHTML = `<span class="${cls}">${temp.toFixed(1)}°C</span>`;
+                if (event.userId) {
+                    const tempCell = document.getElementById(`temp-${event.userId}`);
+                    if (tempCell) tempCell.innerHTML = html;
+                } else {
+                    document.querySelectorAll('.temp-cell').forEach(cell => {
+                        cell.innerHTML = html;
+                    });
                 }
             }
 
