@@ -622,11 +622,20 @@
             })();
         }
 
-        function handleScannedUID(uid) {
+        async function handleScannedUID(uid) {
             document.getElementById('p-nfc').value = uid;
-            toast('success', 'NFC scanned: ' + uid);
+            const res = await fetch('/auth/verify-nfc', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uid })
+            });
+            const json = await res.clone().json().catch(() => ({}));
+            logJson('POST', '/auth/verify-nfc', res.status, json);
+            const data = await res.json();
+            if (res.ok) toast('success', 'Verified: ' + data.patientName);
+            else toast('error', data.message || 'Not recognized');
         }
-
+        
         // ─── ADD PILL ─────────────────────────────────
         async function addPill() {
             clearErrors();
