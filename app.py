@@ -98,12 +98,12 @@ def create_app() -> Flask:
         except (TypeError, ValueError):
             return jsonify({"success": False, "message": "Invalid weight value"}), 400
 
-        pill_weight_g = 0.5
+        pill_weight_g = 0.5  # Update with your measured single-pill weight in grams
         estimated_pills = int(round(weight_g / pill_weight_g))
 
         if estimated_pills <= 0:
             stock_state = "EMPTY_MACHINE"
-        elif estimated_pills < 10:
+        elif estimated_pills < 5:
             stock_state = "LOW_STOCK"
         else:
             stock_state = "STOCK_OK"
