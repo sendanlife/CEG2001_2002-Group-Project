@@ -6,14 +6,17 @@
 #define MSP430_RX_PIN 16
 #define MSP430_TX_PIN 17
 
-const char* ssid = "yoe";
-const char* password = "pword123";
+const char* ssid = "";
+const char* password = "";
 
-const String baseUrl = "http://10.96.234.203:3000";
+const String baseUrl = "http://<IP_ADDRESS>:3000";
 const String nfcEndpoint = baseUrl + "/api/auth/verify-nfc";
 const String tempEndpoint = baseUrl + "/api/temperature";
 const String dispenseStatusEndpoint = baseUrl + "/api/dispense-status";
 const String weightEndpoint = baseUrl + "/api/weight";
+const String pendingNfcEndpoint = baseUrl + "/api/auth/pending-nfc";
+String lastScannedUID = "";
+bool assignNfcMode = false;
 
 String uartBuffer = "";
 
@@ -93,11 +96,41 @@ void checkMSP430UART() {
     }
 }
 
+void assignNfc(const String& uid) {
+    if (uid == "") {
+        Serial.println("No NFC UID scanned yet to autofill.");
+        return;
+    }
+
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("Error: Wi-Fi Disconnected (assignNfc skipped)");
+        return;
+    }
+
+    HTTPClient http;
+    http.setTimeout(3000);
+    http.begin(pendingNfcEndpoint);
+    http.addHeader("Content-Type", "application/json");
+
+    String payload = "{\"uid\":\"" + uid + "\"}";
+    int httpCode = http.POST(payload);
+    Serial.printf("Autofill NFC %s -> HTTP %d\n", uid.c_str(), httpCode);
+    if (httpCode > 0) {
+        Serial.println("Server Response: " + http.getString());
+    }
+    http.end();
+}
+
 void handleNFC() {
     String scannedUID = get_nfc_card();
 
     if (scannedUID != "") {
+        scannedUID.trim();
+        lastScannedUID = scannedUID;
         Serial.println("Card Tapped! UID: " + scannedUID);
+
+        // Push latest scanned UID so the dashboard can autofill it over Wi-Fi
+        assignNfc(scannedUID);
 
         if (WiFi.status() == WL_CONNECTED) {
             HTTPClient http;
@@ -148,5 +181,6 @@ void setup() {
 void loop() {
     checkMSP430UART();
     handleNFC();
+    assignNfc(lastScannedUID); 
     delay(50);
 }

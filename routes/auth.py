@@ -117,25 +117,35 @@ def verify_nfc():
     if missing:
         return error(f"Missing fields: {', '.join(missing)}", 400)
 
-    scanned_uid = data["uid"].strip()
+    scanned_uid = data["uid"].strip().upper()
     print(f"ESP32 scanned hardware card: {scanned_uid}")
-    user = User.query.filter_by(NFCId=scanned_uid).first()
+    user = User.query.filter(User.NFCId.ilike(scanned_uid)).first()
 
     if not user:
         return error("Unauthorized card tap. NFC ID not found in database.", 403)
 
-    pill = Pill.query.filter_by(user_id=user.id).first()
-    pills_left = None
-    if pill and pill.quantity > 0:
-        pill.quantity -= 1
-        pill.last_updated = datetime.datetime.utcnow()
-        db.session.commit()
-        pills_left = pill.quantity
+    current_app.config["ACTIVE_PATIENT_UUID"] = user.UUID
 
     return success({
         "patientName": user.NAME,
         "nfcId": user.NFCId,
         "uuid": user.UUID,
-        "pillsLeft": pills_left,
         "status": "approved",
     }, "NFC authentication successful. Dispensing medication.", 200)
+
+
+@auth_bp.route("/auth/pending-nfc", methods=["POST"])
+def set_pending_nfc():
+    data = request.get_json(silent=True) or {}
+    uid = (data.get("uid") or "").strip().upper()
+    if not uid:
+        return error("Missing uid", 400)
+
+    current_app.config["PENDING_NFC_UID"] = uid
+    return success({"nfcId": uid}, "Pending NFC UID saved for autofill", 200)
+
+
+@auth_bp.route("/auth/pending-nfc", methods=["GET"])
+def get_pending_nfc():
+    uid = current_app.config.get("PENDING_NFC_UID", "")
+    return success({"nfcId": uid}, "Fetched pending NFC UID", 200)

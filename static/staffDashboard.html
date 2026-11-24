@@ -223,7 +223,7 @@
             <div style="display:flex; gap:8px;">
                 <input type="text" id="p-nfc" placeholder="A3F2B1" style="flex:1;">
                 <button type="button" class="btn-secondary" style="flex:0 0 auto; padding:10px 12px; margin-bottom: 14px;"
-                        onclick="scanNFC()">Scan</button>
+                    onclick="assignNfc('p-nfc')">Autofill</button>
             </div>
             <div class="modal-actions">
                 <button class="btn-secondary" onclick="closeModal('modal-add-patient')">Cancel</button>
@@ -336,6 +336,7 @@
     <script>
         let serialPort = null;
         let serialReader = null;
+        let activeNfcTargetInput = 'p-nfc';
 
         const token = localStorage.getItem('staff_token');
         const staff = JSON.parse(localStorage.getItem('staff') || 'null');
@@ -579,61 +580,27 @@
             }
         }
 
-        async function scanNFC() {
-            if (!('serial' in navigator)) {
-                toast('error', 'Web Serial not supported. Use Chrome/Edge over HTTPS or localhost.');
-                return;
-            }
-
+        async function assignNfc(targetInputId = 'p-nfc') {
+            activeNfcTargetInput = targetInputId;
             try {
-                if (!serialPort) {
-                    serialPort = await navigator.serial.requestPort();
-                    await serialPort.open({ baudRate: 115200 });
-                    startSerialReader();
+                const res = await apiFetch(`${API_URL}/auth/pending-nfc`);
+                const result = await res.json();
+                const uid = (result.data?.nfcId || '').trim().toUpperCase();
+
+                if (!uid) {
+                    toast('error', 'No NFC card scanned on ESP32 yet');
+                    return;
                 }
-                toast('success', 'Tap the card on the reader now…');
+
+                const inputEl = document.getElementById(targetInputId);
+                if (inputEl) {
+                    inputEl.value = uid;
+                }
+                toast('success', `Autofilled NFC ID: ${uid}`);
             } catch (err) {
                 console.error(err);
-                toast('error', 'Serial connection failed: ' + err.message);
+                toast('error', 'Failed to fetch scanned NFC ID');
             }
-        }
-
-        function startSerialReader() {
-            const decoder = new TextDecoderStream();
-            serialPort.readable.pipeTo(decoder.writable).catch(() => {});
-            serialReader = decoder.readable.getReader();
-
-            let buffer = '';
-            (async () => {
-                while (true) {
-                    const { value, done } = await serialReader.read();
-                    if (done) break;
-                    buffer += value;
-                    let lines = buffer.split('\n');
-                    buffer = lines.pop();
-                    for (const line of lines) {
-                        const trimmed = line.trim();
-                        if (trimmed.startsWith('NFC:')) {
-                            const uid = trimmed.substring(4);
-                            handleScannedUID(uid);
-                        }
-                    }
-                }
-            })();
-        }
-
-        async function handleScannedUID(uid) {
-            document.getElementById('p-nfc').value = uid;
-            const res = await fetch('/auth/verify-nfc', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ uid })
-            });
-            const json = await res.clone().json().catch(() => ({}));
-            logJson('POST', '/auth/verify-nfc', res.status, json);
-            const data = await res.json();
-            if (res.ok) toast('success', 'Verified: ' + data.patientName);
-            else toast('error', data.message || 'Not recognized');
         }
         
         // ─── ADD PILL ─────────────────────────────────
