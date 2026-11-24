@@ -38,7 +38,7 @@ def create_user():
     data = request.get_json() or {}
 
     missing = require_fields(data, [
-        "UUID", "NAME", "email", "NFCid", "medicalHistoryId",
+        "UUID", "NAME", "email", "NFCid", "medicalHistoryId", "nric"
     ])
     if missing:
         return error(f"Missing fields: {', '.join(missing)}", 400)

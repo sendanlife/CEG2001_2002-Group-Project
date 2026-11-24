@@ -1,6 +1,7 @@
+"""MediTrack IoT Backend - Main entry point."""
 import datetime
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
 from flask_socketio import SocketIO
 from config import Config
@@ -42,16 +43,21 @@ def create_app() -> Flask:
         except (TypeError, ValueError):
             return jsonify({"success": False, "message": "Invalid temperature value"}), 400
 
+        user_uuid = data.get("userId") or app.config.get("ACTIVE_PATIENT_UUID")
+        app.config["LATEST_TEMP"] = temp
+        if user_uuid:
+            app.config.setdefault("PATIENT_TEMPS", {})[user_uuid] = temp
+
         is_alert = temp < 15.0 or temp > 30.0
 
         event_payload = {
+            "userId": user_uuid,
             "temperature": temp,
             "eventType": "TEMP_ALERT" if is_alert else "TEMP_UPDATE",
             "timestamp": datetime.datetime.now().isoformat(),
         }
 
         socketio.emit("new-event", event_payload)
-
         return jsonify({"success": True, "data": event_payload}), 200
 
     @app.route("/api/dispense-status", methods=["POST"])
@@ -122,21 +128,9 @@ def create_app() -> Flask:
         return jsonify({"success": True, "data": event_payload}), 200
     
     @app.route("/")
-    def indexPage():
-        return send_from_directory("static", "index.html")
-
-    @app.route("/dashboard")
-    def patientDashboardPage():
-        return send_from_directory("static", "dashboard.html")
-
-    @app.route("/login")
-    def loginPage():
-        return send_from_directory("static", "login.html")
-
-    @app.route("/signup")
-    def signupPage():
-        return send_from_directory("static", "signup.html")
-
+    def staffStartPage():
+        return send_from_directory("static", "staffLogin.html")
+    
     @app.route("/staff/login")
     def staffLoginPage():
         return send_from_directory("static", "staffLogin.html")
@@ -152,6 +146,71 @@ def create_app() -> Flask:
     @app.route("/health")
     def health():
         return {"status": "healthy", "service": "meditrack"}
+    
+    @app.route('/api/staff/schedules/<scheduleId>/toggle', methods=['PATCH'])
+    def toggle_schedule(scheduleId):
+        try:
+            from models import OnSchedule
+            
+            schedule = OnSchedule.query.get(scheduleId)
+            if not schedule:
+                return jsonify({"success": False, "message": "Schedule not found"}), 404
+                
+            schedule.isActive = not schedule.isActive
+            db.session.commit()
+            
+            return jsonify({"success": True, "message": "Status toggled"})
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"success": False, "message": str(e)}), 500
+
+
+    @app.route('/api/staff/schedules/<scheduleId>', methods=['PUT'])
+    def update_schedule(scheduleId):
+        try:
+            from models import OnSchedule
+            from datetime import datetime
+            
+            data = request.get_json()
+            schedule = OnSchedule.query.get(scheduleId)
+            if not schedule:
+                return jsonify({"success": False, "message": "Schedule not found"}), 404
+
+            # Update fields
+            schedule.pillsId = data.get('pillsId', schedule.pillsId)
+            schedule.pillsDose = data.get('pillsDose', schedule.pillsDose)
+            
+            # Parse time properly
+            if 'timing' in data and data['timing']:
+                try:
+                    schedule.timing = datetime.strptime(data['timing'], "%H:%M").time()
+                except ValueError:
+                    return jsonify({"success": False, "message": "Invalid time format"}), 400
+                    
+            schedule.dispenseAmount = data.get('dispenseAmount', schedule.dispenseAmount)
+            schedule.onRepeat = data.get('onRepeat', schedule.onRepeat)
+            schedule.isRepeat = data.get('isRepeat', schedule.isRepeat)
+
+            db.session.commit()
+            return jsonify({"success": True, "message": "Schedule updated"})
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"success": False, "message": str(e)}), 500
+        
+    @app.route('/api/staff/patients/<uuid>', methods=['DELETE'])
+    def delete_patient(uuid):
+        try:
+            from models import User
+            patient = User.query.get(uuid)
+            if not patient:
+                return jsonify({"success": False, "message": "Patient not found"}), 404
+                
+            db.session.delete(patient)
+            db.session.commit()
+            return jsonify({"success": True, "message": "Patient deleted"})
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"success": False, "message": str(e)}), 500
 
     app.extensions["socketio"] = socketio
     socketio.init_app(app)

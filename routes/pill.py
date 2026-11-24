@@ -28,7 +28,7 @@ def create_pill():
     """POST /api/pills — add a new pill to the catalogue."""
     data = request.get_json() or {}
 
-    missing = require_fields(data, ["pillsId", "pillName", "weight"])
+    missing = require_fields(data, ["pillsId", "pillName"])
     if missing:
         return error(f"Missing fields: {', '.join(missing)}", 400)
 
@@ -38,8 +38,8 @@ def create_pill():
     pill = Pill(
         pillsId=data["pillsId"],
         pillName=data["pillName"],
-        weight=data["weight"],
-        quantity=data.get("quantity", 0),
+        # weight=data["weight"],
+        # quantity=data.get("quantity", 0),
         DESCRIPTION=data.get("DESCRIPTION", ""),
     )
     db.session.add(pill)
@@ -58,10 +58,10 @@ def update_pill(pills_id):
     data = request.get_json() or {}
     if "pillName" in data:
         pill.pillName = data["pillName"]
-    if "weight" in data:
-        pill.weight = data["weight"]
-    if "quantity" in data:
-        pill.quantity = data["quantity"]
+    # if "weight" in data:
+    #     pill.weight = data["weight"]
+    # if "quantity" in data:
+    #     pill.quantity = data["quantity"]
     if "DESCRIPTION" in data:
         pill.DESCRIPTION = data["DESCRIPTION"]
 
