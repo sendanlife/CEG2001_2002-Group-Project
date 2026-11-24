@@ -5,8 +5,7 @@ from flask import Blueprint, current_app, request
 from database import db
 from models import User, Medical, MedicalStaff
 from utils import (
-    success, error, require_fields,
-    hash_password, verify_password, create_token, decode_token,
+    success, error, require_fields, create_token, decode_token, hash_password, verify_password
 )
 
 auth_bp = Blueprint("auth", __name__)
@@ -16,11 +15,12 @@ auth_bp = Blueprint("auth", __name__)
 def signup():
     data = request.get_json() or {}
 
-    missing = require_fields(data, ["name", "email", "password", "NFCid"])
+    missing = require_fields(data, ["name", "email", "NFCid", "nric"])
     if missing:
         return error(f"Missing fields: {', '.join(missing)}", 400)
 
     email = data["email"].lower().strip()
+    nric = data["nric"].strip()
 
     if User.query.filter_by(email=email).first():
         return error("Email already registered", 409)
@@ -42,12 +42,11 @@ def signup():
             UUID=user_uuid,
             NAME=data["name"].strip(),
             email=email,
-            nric=data.get("NRIC"),
+            nric=nric,
             phoneNumber=data.get("phoneNumber", "").strip(),
             MSId=staff.MSId,
             NFCId=data["NFCid"].strip(),
             medicalHistoryId=medical_history_id,
-            passwordHash=hash_password(data["password"]),
         )
         db.session.add(user)
         db.session.flush()

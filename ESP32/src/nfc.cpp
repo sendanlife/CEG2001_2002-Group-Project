@@ -9,6 +9,7 @@ MFRC522 rfid(SS_PIN, RST_PIN);
 void init_nfc() {
     SPI.begin();
     rfid.PCD_Init();
+    Serial.begin(115200);  
 }
 
 String get_nfc_card() {

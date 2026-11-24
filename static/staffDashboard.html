@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Staff Dashboard — MediTrack</title>
+    <title>MediTrack</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; padding: 20px; }
@@ -42,10 +44,53 @@
             box-shadow: 0 2px 10px rgba(0,0,0,0.05); margin-bottom: 20px;
         }
         .card h2 { font-size: 16px; color: #555; margin-bottom: 15px; text-transform: uppercase; letter-spacing: 1px; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
-        th { color: #888; font-weight: normal; font-size: 12px; text-transform: uppercase; }
+                table { width: 100%; border-collapse: collapse; min-width: 650px; } /* Lowered from 800px */
+        th, td { padding: 10px 8px; text-align: left; border-bottom: 1px solid #eee; font-size: 13px; } /* Slightly smaller padding/font */
+        th { color: #888; font-weight: normal; font-size: 11px; text-transform: uppercase; } /* Removed white-space: nowrap so headers wrap */
         tr:hover { background: #f8f9fa; }
+
+                /* ─── TABLE STYLES FOR MODALS (RESPONSIVE) ─── */
+        #patient-details {
+            overflow-x: auto; /* Allows horizontal scrolling on mobile */
+            -webkit-overflow-scrolling: touch;
+        }
+        
+        #patient-details table {
+            width: 100%;
+            min-width: 100%; /* Forces a minimum width so columns don't squish */
+        }
+
+        #patient-details td, 
+        #patient-details th {
+            padding: 2px 7px;
+            font-size: 13px;
+            white-space: nowrap; /* Prevents names like "Diphenhydramine" from breaking awkwardly */
+        }
+        
+        #patient-details td:first-child {
+            white-space: normal; /* Allows the pill name to wrap nicely if it's very long */
+        }
+
+        #patient-details td:last-child {
+            width: 100%; /* Shrinks the column to fit the buttons perfectly */
+        }
+
+        /* ─── STATUS BADGES ─────────────────────── */
+        .badge {
+            display: inline-block; padding: 4px 10px; border-radius: 20px;
+            font-size: 11px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.5px; white-space: nowrap;
+        }
+        .badge-ok       { background: #e6f9ee; color: #1e8449; }
+        .badge-low      { background: #fff4e0; color: #b9770e; }
+        .badge-empty    { background: #ffe6e6; color: #c0392b; }
+        .badge-na       { background: #f0f2f5; color: #888; }
+        .badge-loading  { background: #eef3ff; color: #2a5298; }
+        .temp-cell      { font-weight: 600; }
+        .temp-ok        { color: #1e8449; }
+        .temp-warn      { color: #b9770e; }
+        .temp-danger    { color: #c0392b; }
+        .pill-stack     { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
 
         /* ─── MODAL ─────────────────────────────── */
         .modal {
@@ -92,6 +137,15 @@
         .toast.success { background: #27ae60; }
         .toast.error { background: #e74c3c; }
         @keyframes slideIn { from { transform: translateX(400px); } to { transform: translateX(0); } }
+    
+         @media (max-width: 600px) {
+            .header { flex-direction: column; align-items: flex-start; }
+            .header button { width: 100%; text-align: center; }
+            .modal-content { padding: 20px; }
+            .modal-actions { flex-direction: column; }
+            .btn-primary, .btn-secondary { width: 100%; }
+        }
+        
     </style>
 </head>
 <body>
@@ -136,12 +190,15 @@
                     <th>Name</th>
                     <th>Email</th>
                     <th>Phone</th>
+                    <th>NRIC</th>
                     <th>NFC ID</th>
+                    <th>🌡️ Temp (°C)</th>
+                    <th>💊 Pill Status</th>
                     <th>Actions</th>
                 </tr>
             </thead>
             <tbody id="patients-list">
-                <tr><td colspan="6" style="text-align:center; color:#888;">Loading...</td></tr>
+                <tr><td colspan="9" style="text-align:center; color:#888;">Loading...</td></tr>
             </tbody>
         </table>
     </div>
@@ -158,13 +215,16 @@
             <label>Email</label>
             <input type="email" id="p-email" placeholder="john@example.com">
             <label>NRIC</label>
-            <input type="text" id="p-nric" placeholder="S1234567A">
+            <input type="text" id="p-nric" name="nric" placeholder="S1234567A"
+            maxlength="9" autocomplete="off">
             <label>Phone</label>
             <input type="tel" id="p-phone" placeholder="+65 9123 4567">
             <label>NFC Wristband ID</label>
-            <input type="text" id="p-nfc" placeholder="NFC-A3F2B1">
-            <label>Temporary Password</label>
-            <input type="password" id="p-password" placeholder="Min 8 characters">
+            <div style="display:flex; gap:8px;">
+                <input type="text" id="p-nfc" placeholder="A3F2B1" style="flex:1;">
+                <button type="button" class="btn-secondary" style="flex:0 0 auto; padding:10px 12px; margin-bottom: 14px;"
+                        onclick="scanNFC()">Scan</button>
+            </div>
             <div class="modal-actions">
                 <button class="btn-secondary" onclick="closeModal('modal-add-patient')">Cancel</button>
                 <button class="btn-primary" onclick="addPatient()">Add Patient</button>
@@ -179,10 +239,6 @@
             <div class="error-box" id="err-add-pill"></div>
             <label>Pill Name</label>
             <input type="text" id="pill-name" placeholder="Amlodipine 5mg">
-            <label>Weight (grams)</label>
-            <input type="number" id="pill-weight" step="0.01" placeholder="5.00">
-            <label>Initial Quantity</label>
-            <input type="number" id="pill-quantity" value="0">
             <label>Description</label>
             <textarea id="pill-desc" rows="2" placeholder="Blood pressure medication"></textarea>
             <div class="modal-actions">
@@ -247,7 +303,40 @@
         </div>
     </div>
 
+    <!-- EDIT SCHEDULE MODAL -->
+    <div class="modal" id="modal-edit-schedule">
+        <div class="modal-content">
+            <h2>✏️ Edit Schedule</h2>
+            <div class="error-box" id="err-edit-schedule"></div>
+            
+            <input type="hidden" id="edit-sched-id">
+            
+            <label>Pill</label>
+            <select id="edit-sched-pill"></select>
+            
+            <label>Pills per Dose</label>
+            <input type="number" id="edit-sched-dose" value="1" min="1">
+            
+            <label>Time (HH:MM)</label>
+            <input type="time" id="edit-sched-timing">
+            
+            <label>Dispense Amount</label>
+            <input type="number" id="edit-sched-amount" value="1" min="1">
+            
+            <label>Repeat Days (comma-separated, leave empty for daily)</label>
+            <input type="text" id="edit-sched-days" placeholder="Leave empty for Daily">
+            
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('modal-edit-schedule')">Cancel</button>
+                <button class="btn-primary" onclick="saveScheduleEdit()">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
     <script>
+        let serialPort = null;
+        let serialReader = null;
+
         const token = localStorage.getItem('staff_token');
         const staff = JSON.parse(localStorage.getItem('staff') || 'null');
         if (!token || !staff) {
@@ -255,6 +344,7 @@
             throw new Error('Redirecting');
         }
 
+        const socket = io();
         const API_URL = '/api';
         let patientsCache = [];
         let pillsCache = [];
@@ -274,10 +364,10 @@
         }
 
         // ─── MODAL CONTROLS ───────────────────────────
-        function openModal(id) {
+        async function openModal(id) {
             document.getElementById(id).classList.add('show');
             if (id === 'modal-assign-pill' || id === 'modal-add-schedule' || id === 'modal-view-patient') {
-                populateDropdowns();
+                await populateDropdowns();
             }
         }
         function closeModal(id) {
@@ -317,23 +407,91 @@
             const list = document.getElementById('patients-list');
             list.innerHTML = '';
             if (data.patients.length === 0) {
-                list.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#888;">No patients assigned yet.</td></tr>';
-            } else {
-                data.patients.forEach(p => {
-                    list.innerHTML += `
-                        <tr>
-                            <td>${p.UUID}</td>
-                            <td>${p.NAME}</td>
-                            <td>${p.email}</td>
-                            <td>${p.phoneNumber || '-'}</td>
-                            <td>${p.NFCId || '-'}</td>
-                            <td>
-                                <button style="padding:6px 12px; border:none; border-radius:6px; background:#2a5298; color:white; cursor:pointer;"
+                list.innerHTML = '<tr><td colspan="9" style="text-align:center; color:#888;">No patients assigned yet.</td></tr>';
+                return;
+            }
+
+            data.patients.forEach(p => {
+                // ✅ NRIC Fix: Checks both uppercase and lowercase just in case
+                const nricDisplay = p.NRIC || p.nric || '-';
+
+                list.innerHTML += `
+                    <tr id="row-${p.UUID}">
+                        <td>${p.UUID}</td>
+                        <td>${p.NAME}</td>
+                        <td>${p.email}</td>
+                        <td>${p.phoneNumber || '-'}</td>
+                        <td>${nricDisplay}</td>
+                        <td>${p.NFCId || '-'}</td>
+                        <td class="temp-cell" id="temp-${p.UUID}">
+                            <span class="badge badge-loading">Loading…</span>
+                        </td>
+                        <td id="pills-${p.UUID}">
+                            <span class="badge badge-loading">Loading…</span>
+                        </td>
+                        <td>
+                            <div style="display: flex; flex-direction: column; gap: 6px;">
+                                <button style="padding:6px 12px; border:none; border-radius:6px; background:#2a5298; color:white; cursor:pointer; width: 100%;"
                                     onclick="viewPatient('${p.UUID}')">View</button>
-                            </td>
-                        </tr>
-                    `;
-                });
+                                <button style="padding:6px 12px; border:none; border-radius:6px; background:#e74c3c; color:white; cursor:pointer; width: 100%;"
+                                    onclick="deletePatient('${p.UUID}', '${p.NAME}')">Delete</button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            await Promise.all(data.patients.map(p => loadPatientStatus(p.UUID)));
+        }
+
+        // ─── FETCH & RENDER TEMP + PILL STATUS FOR ONE PATIENT ─────
+        async function loadPatientStatus(uuid) {
+            const tempCell = document.getElementById(`temp-${uuid}`);
+            const pillsCell = document.getElementById(`pills-${uuid}`);
+            if (!tempCell || !pillsCell) return;
+
+            try {
+                const res = await apiFetch(`${API_URL}/staff/patients/${uuid}`);
+                const result = await res.json();
+                if (!result.success) throw new Error(result.message || 'Failed to load');
+
+                const data = result.data;
+                const rawTemp = data.temperature ?? data.patient?.temperature ?? data.dispenserDetails?.[0]?.temperature ?? null;
+
+                if (rawTemp === null || rawTemp === undefined || isNaN(Number(rawTemp))) {
+                    tempCell.innerHTML = '<span class="badge badge-na">N/A</span>';
+                } else {
+                    const temp = Number(rawTemp);
+                    let cls = 'temp-ok';
+                    if (temp >= 30) cls = 'temp-danger';
+                    else if (temp >= 25) cls = 'temp-warn';
+                    tempCell.innerHTML = `<span class="${cls}">${temp.toFixed(1)}°C</span>`;
+                }
+
+                const LOW_THRESHOLD = 5;
+                const inventory = data.inventory || [];
+
+                if (inventory.length === 0) {
+                    pillsCell.innerHTML = '<span class="badge badge-na">No pills</span>';
+                } else {
+                    pillsCell.innerHTML = '<div class="pill-stack">' +
+                        inventory.map(p => {
+                            const qty = p.quantity || 0;
+                            let cls = 'badge-ok', label = 'OK';
+                            if (qty === 0) { cls = 'badge-empty'; label = 'Empty'; }
+                            else if (qty < LOW_THRESHOLD) { cls = 'badge-low'; label = 'Low'; }
+                            console.log(`Patient ${uuid} pill ${p.pillName} quantity: ${qty}, status: ${label}`);
+                            return `<div style="display:flex; align-items:center; gap:6px; flex-wrap: wrap;">
+                                        <span class="badge ${cls}">${label}</span> 
+                                        <span style="word-break: break-word;">${p.pillName} <small>(${qty})</small></span>
+                                    </div>`;
+                                }).join('') +
+                    '</div>';
+                }
+            } catch (err) {
+                console.error('Status load failed for', uuid, err);
+                tempCell.innerHTML = '<span class="badge badge-na">Error</span>';
+                pillsCell.innerHTML = '<span class="badge badge-na">Error</span>';
             }
         }
 
@@ -344,7 +502,6 @@
 
         // ─── POPULATE DROPDOWNS ───────────────────────
         async function populateDropdowns() {
-            // Pills
             const pillsRes = await apiFetch(`${API_URL}/staff/pills`);
             const pillsResult = await pillsRes.json();
             pillsCache = pillsResult.data || [];
@@ -356,7 +513,6 @@
             document.getElementById('assign-pill').innerHTML = pillOptions;
             document.getElementById('sched-pill').innerHTML = pillOptions;
 
-            // Patients
             const patientOptions = patientsCache.map(p =>
                 `<option value="${p.UUID}">${p.NAME} (${p.UUID})</option>`
             ).join('');
@@ -374,10 +530,9 @@
                 email: document.getElementById('p-email').value.trim().toLowerCase(),
                 phoneNumber: document.getElementById('p-phone').value.trim(),
                 NFCid: document.getElementById('p-nfc').value.trim(),
-                password: document.getElementById('p-password').value,
-                nric: document.getElementById('p-nric').value.trim()
+                nric: document.getElementById('p-nric').value.trim().toUpperCase(),
             };
-
+            
             const res = await apiFetch(`${API_URL}/staff/patients`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -393,7 +548,83 @@
             document.getElementById('p-email').value = '';
             document.getElementById('p-phone').value = '';
             document.getElementById('p-nfc').value = '';
+            document.getElementById('p-nric').value = '';
             loadDashboard();
+        }
+
+        // ─── DELETE PATIENT ───────────────────────────
+        async function deletePatient(uuid, name) {
+            if (!confirm(`Are you sure you want to delete patient ${name} (${uuid})?\n\nThis will also delete all their schedules, inventory, and history.`)) {
+                return;
+            }
+
+            try {
+                const res = await apiFetch(`${API_URL}/staff/patients/${uuid}`, {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                });
+                
+                const result = await res.json();
+
+                if (!result.success) {
+                    toast('error', result.message || 'Failed to delete patient');
+                    return;
+                }
+
+                toast('success', 'Patient deleted successfully');
+                loadDashboard(); // Refresh the table
+            } catch (err) {
+                console.error(err);
+                toast('error', 'Network error while deleting patient');
+            }
+        }
+
+        async function scanNFC() {
+            if (!('serial' in navigator)) {
+                toast('error', 'Web Serial not supported. Use Chrome/Edge over HTTPS or localhost.');
+                return;
+            }
+
+            try {
+                if (!serialPort) {
+                    serialPort = await navigator.serial.requestPort();
+                    await serialPort.open({ baudRate: 115200 });
+                    startSerialReader();
+                }
+                toast('success', 'Tap the card on the reader now…');
+            } catch (err) {
+                console.error(err);
+                toast('error', 'Serial connection failed: ' + err.message);
+            }
+        }
+
+        function startSerialReader() {
+            const decoder = new TextDecoderStream();
+            serialPort.readable.pipeTo(decoder.writable).catch(() => {});
+            serialReader = decoder.readable.getReader();
+
+            let buffer = '';
+            (async () => {
+                while (true) {
+                    const { value, done } = await serialReader.read();
+                    if (done) break;
+                    buffer += value;
+                    let lines = buffer.split('\n');
+                    buffer = lines.pop();
+                    for (const line of lines) {
+                        const trimmed = line.trim();
+                        if (trimmed.startsWith('NFC:')) {
+                            const uid = trimmed.substring(4);
+                            handleScannedUID(uid);
+                        }
+                    }
+                }
+            })();
+        }
+
+        function handleScannedUID(uid) {
+            document.getElementById('p-nfc').value = uid;
+            toast('success', 'NFC scanned: ' + uid);
         }
 
         // ─── ADD PILL ─────────────────────────────────
@@ -401,8 +632,6 @@
             clearErrors();
             const payload = {
                 pillName: document.getElementById('pill-name').value.trim(),
-                weight: parseFloat(document.getElementById('pill-weight').value),
-                quantity: parseInt(document.getElementById('pill-quantity').value) || 0,
                 DESCRIPTION: document.getElementById('pill-desc').value.trim(),
             };
 
@@ -418,8 +647,6 @@
             toast('success', 'Pill added to catalogue');
             closeModal('modal-add-pill');
             document.getElementById('pill-name').value = '';
-            document.getElementById('pill-weight').value = '';
-            document.getElementById('pill-quantity').value = 0;
             document.getElementById('pill-desc').value = '';
         }
 
@@ -444,6 +671,7 @@
 
             toast('success', 'Pill assigned');
             closeModal('modal-assign-pill');
+            loadPatientStatus(uuid);
         }
 
         // ─── ADD SCHEDULE ─────────────────────────────
@@ -473,59 +701,273 @@
 
         // ─── VIEW PATIENT ─────────────────────────────
         async function viewPatient(uuid) {
-            openModal('modal-view-patient');
+            await openModal('modal-view-patient');
             document.getElementById('view-patient').value = uuid;
-            loadPatientDetails();
+            await loadPatientDetails();
         }
 
         async function loadPatientDetails() {
             const uuid = document.getElementById('view-patient').value;
             if (!uuid) return;
 
-            const res = await apiFetch(`${API_URL}/staff/patients/${uuid}`);
-            const result = await res.json();
-            if (!result.success) return;
-
-            const data = result.data;
             const detailBox = document.getElementById('patient-details');
+            detailBox.innerHTML = '<div style="text-align:center; padding:20px;">Loading...</div>';
 
-            const invRows = data.inventory.length === 0
-                ? '<tr><td colspan="3" style="color:#888;">No pills assigned</td></tr>'
-                : data.inventory.map(p => `
-                    <tr>
-                        <td>${p.pillName}</td>
-                        <td>${p.quantity}</td>
-                        <td>${p.pillsDose}</td>
-                    </tr>`).join('');
+            try {
+                const res = await apiFetch(`${API_URL}/staff/patients/${uuid}`);
+                const result = await res.json();
+                
+                if (!result.success) {
+                    detailBox.innerHTML = `<div style="color:#c0392b; padding:15px; background:#ffe6e6; border-radius:8px;">Error: ${result.message}</div>`;
+                    return;
+                }
 
-            const schedRows = data.schedules.length === 0
-                ? '<tr><td colspan="4" style="color:#888;">No schedules</td></tr>'
-                : data.schedules.map(s => `
+                const data = result.data;
+                const inventory = data.inventory || [];
+                const schedules = data.schedules || [];
+                const dispenserDetails = data.dispenserDetails || [];
+                console.log('Dispenser details:', data);
+
+                const rawTemp = data.temperature ?? data.patient?.temperature ?? dispenserDetails?.[0]?.temperature ?? null;
+                const tempDisplay = (rawTemp === null || isNaN(Number(rawTemp))) ? 'N/A' : `${Number(rawTemp).toFixed(1)}°C`;
+
+                const invRows = inventory.length === 0
+                    ? '<tr><td colspan="3" style="color:#888;">No pills assigned</td></tr>'
+                    : inventory.map(p => {
+                        const qty = p.quantity || 0;
+                        let cls = 'badge-ok', label = 'OK';
+                        if (qty === 0) { cls = 'badge-empty'; label = 'Empty'; }
+                        else if (qty < 5) { cls = 'badge-low'; label = 'Low'; }
+                        return `<tr>
+                            <td>${p.pillName}</td>
+                            <td>${p.quantity} <span class="badge ${cls}">${label}</span></td>
+                            <td>${p.pillsDose}</td>
+                        </tr>`;
+                    }).join('');
+                console.log('Inventory rows:', inventory);
+
+                const schedRows = schedules.length === 0
+                ? '<tr><td colspan="6" style="color:#888;">No schedules</td></tr>'
+                : schedules.map(s => {
+                    const timeDisplay = s.timing ? s.timing.substring(0, 5) : '-';
+                    let daysDisplay = s.onRepeat ? s.onRepeat.replace(/,/g, ', ') : 'Daily';
+                    
+                    const statusBadge = s.isActive 
+                        ? '<span class="badge badge-ok">Active</span>' 
+                        : '<span class="badge badge-empty">Disabled</span>';
+                    
+                    const toggleBtnText = s.isActive ? 'Disable' : 'Enable';
+                    const toggleStyle = s.isActive 
+                        ? 'background:#fff4e0; color:#b9770e; border:1px solid #b9770e;' 
+                        : 'background:#e6f9ee; color:#1e8449; border:1px solid #1e8449;';
+
+                    window.schedulesCache = window.schedulesCache || {};
+                    window.schedulesCache[s.scheduleId] = s;
+
+                    return `
                     <tr>
-                        <td>${s.timing}</td>
+                        <td>${statusBadge}</td>
+                        <td>${timeDisplay}</td>
                         <td>${s.pillName}</td>
                         <td>${s.dispenseAmount}</td>
-                        <td>${s.onRepeat || 'Daily'}</td>
-                    </tr>`).join('');
+                        <td>${daysDisplay}</td>
+                        <td>
+                            <div style="display: flex; flex-direction: column; gap: 6px;">
+                                <button onclick="toggleSchedule('${s.scheduleId}', ${s.isActive}, '${uuid}')"
+                                    style="padding:4px 8px; border-radius:4px; cursor:pointer; font-size:12px; font-weight:600; ${toggleStyle}">
+                                    ${toggleBtnText}
+                                </button>
+                                <button onclick="openEditScheduleModal('${s.scheduleId}')"
+                                    style="padding:4px 8px; border-radius:4px; cursor:pointer; font-size:12px; font-weight:600; background:#eef3ff; color:#2a5298; border:1px solid #2a5298;">
+                                    Edit
+                                </button>
+                            </div>
+                        </td>
+                    </tr>`;
+                }).join('');
+                console.log('Schedule rows:', schedules);
 
-            detailBox.innerHTML = `
-                <div style="background:#f8f9fa; padding:15px; border-radius:8px; margin-bottom:15px;">
-                    <strong>${data.patient.NAME}</strong><br>
-                    <small>${data.patient.email} · ${data.patient.phoneNumber || 'no phone'}</small>
-                </div>
+                //Dispenser details table - detect pill is being dispensed or not, and show remaining quantity
+                const dispRows = dispenserDetails.length === 0
+                    ? '<tr><td colspan="3" style="color:#888;">No dispenser data</td></tr>'
+                    : dispenserDetails.map(d => `
+                        <tr>
+                            <td>${d.pillName}</td>
+                            <td>${d.dispensed > 0 ? "Success" : "None"}</td>
+                            <td>${d.remaining}</td>
+                        </tr>`).join('');
+                console.log('Dispenser rows:', dispenserDetails);
+                const nricDisplay = data.patient.NRIC || data.patient.nric || 'N/A';
 
-                <h3 style="font-size:14px; color:#2a5298; margin: 15px 0 8px;">Assigned Pills</h3>
-                <table>
-                    <thead><tr><th>Pill</th><th>Qty</th><th>Dose</th></tr></thead>
-                    <tbody>${invRows}</tbody>
-                </table>
+                detailBox.innerHTML = `
+                    <div style="background:#f8f9fa; padding:15px; border-radius:8px; margin-bottom:15px;">
+                        <strong>${data.patient.NAME}</strong><br>
+                        <small>${data.patient.email} · ${data.patient.phoneNumber || 'no phone'}</small><br>
+                        <small>NRIC: ${nricDisplay}</small>
+                        <div style="margin-top:8px;">🌡️ Temp: <strong>${tempDisplay}</strong></div>
+                    </div>
 
-                <h3 style="font-size:14px; color:#2a5298; margin: 15px 0 8px;">Schedules</h3>
-                <table>
-                    <thead><tr><th>Time</th><th>Pill</th><th>Amount</th><th>Days</th></tr></thead>
-                    <tbody>${schedRows}</tbody>
-                </table>
+                    <h3 style="font-size:14px; color:#2a5298; margin: 15px 0 8px;">Assigned Pills</h3>
+                    <table>
+                        <thead><tr><th>Pill</th><th>Qty</th><th>Dose</th></tr></thead>
+                        <tbody>${invRows}</tbody>
+                    </table>
+
+                    <h3 style="font-size:14px; color:#2a5298; margin: 15px 0 8px;">Schedules</h3>
+                    <table>
+                        <thead><tr><th>Status</th><th>Time</th><th>Pill</th><th>Amount</th><th>Days</th><th>Actions</th></tr></thead>
+                        <tbody>${schedRows}</tbody>
+                    </table>
+
+                    <h3 style="font-size:14px; color:#2a5298; margin:15px 0 8px;">Dispenser Details</h3>
+                    <table>
+                        <thead><tr><th>Pill</th><th>Dispensed</th><th>Remaining</th></tr></thead>
+                        <tbody>${dispRows}</tbody>
+                    </table>
+                `;
+            } catch (err) {
+                console.error(err);
+                detailBox.innerHTML = `<div style="color:#c0392b; padding:15px; background:#ffe6e6; border-radius:8px;">Failed to load details.</div>`;
+            }
+        }
+
+        // ─── TOGGLE SCHEDULE (ENABLE/DISABLE) ─────────
+        async function toggleSchedule(scheduleId, currentStatus, uuid) {
+            try {
+                const res = await apiFetch(`${API_URL}/staff/schedules/${scheduleId}/toggle`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                });
+                const result = await res.json();
+
+                if (!result.success) {
+                    toast('error', result.message || 'Failed to toggle schedule');
+                    return;
+                }
+
+                toast('success', `Schedule ${currentStatus ? 'Disabled' : 'Enabled'}`);
+                loadPatientDetails(); 
+                loadPatientStatus(uuid); 
+            } catch (err) {
+                console.error(err);
+                toast('error', 'Network error while toggling schedule');
+            }
+        }
+
+        // ─── OPEN EDIT SCHEDULE MODAL ─────────────────
+        async function openEditScheduleModal(scheduleId) {
+            const s = window.schedulesCache[scheduleId];
+            if (!s) return;
+
+            const pillOptions = pillsCache.map(p =>
+                `<option value="${p.pillsId}" ${p.pillsId === s.pillsId ? 'selected' : ''}>${p.pillName} (${p.pillsId})</option>`
+            ).join('');
+            document.getElementById('edit-sched-pill').innerHTML = pillOptions;
+
+            document.getElementById('edit-sched-id').value = s.scheduleId;
+            document.getElementById('edit-sched-dose').value = s.pillsDose || 1;
+            
+            const timeVal = s.timing ? s.timing.substring(0, 5) : '08:00';
+            document.getElementById('edit-sched-timing').value = timeVal; 
+            
+            document.getElementById('edit-sched-amount').value = s.dispenseAmount || 1;
+            document.getElementById('edit-sched-days').value = s.onRepeat || '';
+            
+            await openModal('modal-edit-schedule');
+        }
+
+        // ─── SAVE SCHEDULE EDIT ───────────────────────
+        async function saveScheduleEdit() {
+            clearErrors();
+            const scheduleId = document.getElementById('edit-sched-id').value;
+            const payload = {
+                pillsId: document.getElementById('edit-sched-pill').value,
+                pillsDose: parseInt(document.getElementById('edit-sched-dose').value) || 1,
+                timing: document.getElementById('edit-sched-timing').value,
+                dispenseAmount: parseInt(document.getElementById('edit-sched-amount').value) || 1,
+                onRepeat: document.getElementById('edit-sched-days').value.trim() || null,
+                isRepeat: true 
+            };
+
+            try {
+                const res = await apiFetch(`${API_URL}/staff/schedules/${scheduleId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                const result = await res.json();
+
+                if (!result.success) {
+                    showErr('err-edit-schedule', result.message || 'Failed to update schedule');
+                    return;
+                }
+
+                toast('success', 'Schedule updated successfully');
+                closeModal('modal-edit-schedule');
+                loadPatientDetails(); 
+            } catch (err) {
+                console.error(err);
+                showErr('err-edit-schedule', 'Network error');
+            }
+        }
+
+        // ─── SOCKET.IO REAL-TIME UPDATES ──────────────
+        socket.on('connect', () => {
+            console.log('Staff dashboard connected to WebSockets');
+        });
+
+        socket.on('new-event', (event) => {
+            console.log('Real-time event received:', event);
+
+            if (event.userId && event.temperature !== undefined && event.temperature !== null) {
+                const tempCell = document.getElementById(`temp-${event.userId}`);
+                if (tempCell) {
+                    const temp = Number(event.temperature);
+                    
+                    let cls = 'temp-ok'; // normal
+                    if (temp >= 30) {
+                        cls = 'temp-danger'; // too hot
+                    } else if (temp >= 25 || temp < 15) { 
+                        cls = 'temp-warn';   // warm or too cold
+                    }
+
+                    tempCell.innerHTML = `<span class="${cls}">${temp.toFixed(1)}°C</span>`;
+                }
+            }
+
+            if (event.eventType === 'PILL_DISPENSED' && event.userId) {
+                loadPatientStatus(event.userId); 
+                const currentModalPatient = document.getElementById('view-patient').value;
+                if (currentModalPatient === event.userId) {
+                    showNotification('success', 'Pill Dispensed Successfully');
+                    loadPatientDetails();
+                }
+            }
+
+            if (event.eventType === 'LOW_STOCK' && event.userId) {
+                showNotification('warning', 'Warning: Pill stock is running low!');
+                loadPatientStatus(event.userId);    
+            }
+            
+            if (event.eventType === 'EMPTY_MACHINE' && event.userId) {
+                showNotification('error', 'Machine is empty! Refill required.');
+                loadPatientStatus(event.userId);
+            }
+
+            if (event.eventType === 'TEMP_ALERT') showNotification('error', 'Temperature out of safe range!');
+            if (event.eventType === 'DISPENSE_ERROR') showNotification('error', 'Dispense error detected!');
+        });
+
+        function showNotification(type, message) {
+            const box = document.getElementById('notification-box');
+            const div = document.createElement('div');
+            div.className = `alert alert-${type}`;
+            div.innerHTML = `
+                <span>${message}</span>
+                <span style="cursor:pointer;" onclick="this.parentElement.remove()">✕</span>
             `;
+            box.appendChild(div);
+            setTimeout(() => div.remove(), 10000);
         }
 
         function logout() {
