@@ -1,7 +1,7 @@
 """MediTrack IoT Backend - Main entry point."""
 import datetime
 
-from flask import Flask, jsonify, send_from_directory, request
+from flask import Flask, jsonify, send_from_directory, request, current_app
 from flask_cors import CORS
 from flask_socketio import SocketIO
 from config import Config
@@ -66,8 +66,9 @@ def create_app() -> Flask:
         status = str(data.get("status", "")).upper()
         is_ok = status == "OK"
 
-        user_name = app.config.get("LAST_DISPENSE_USER", "Unknown")
-        nfc_id = app.config.get("LAST_DISPENSE_NFC", "UNKNOWN")
+        user_name = current_app.config.get("LAST_DISPENSE_USER", "Unknown")
+        print(user_name)
+        nfc_id = current_app.config.get("LAST_DISPENSE_NFC", "UNKNOWN")
         now = datetime.datetime.now()
 
         try:
