@@ -126,11 +126,14 @@ void handleNFC() {
 
     if (scannedUID != "") {
         scannedUID.trim();
-        lastScannedUID = scannedUID;
+        scannedUID.toUpperCase();
         Serial.println("Card Tapped! UID: " + scannedUID);
 
-        // Push latest scanned UID so the dashboard can autofill it over Wi-Fi
-        assignNfc(scannedUID);
+        // Only push for autofill when a new card is scanned
+        if (scannedUID != lastScannedUID) {
+            lastScannedUID = scannedUID;
+            assignNfc(scannedUID);
+        }
 
         if (WiFi.status() == WL_CONNECTED) {
             HTTPClient http;
@@ -181,6 +184,5 @@ void setup() {
 void loop() {
     checkMSP430UART();
     handleNFC();
-    assignNfc(lastScannedUID); 
     delay(50);
 }
