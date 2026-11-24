@@ -2,80 +2,92 @@
 #define LINEAR_ACTUATOR_H
 
 #include <msp430.h>
+#include <stdio.h>
+#include "stepper.h"
+#include "msp430uart.h"
+#include "tempSensor.h"
+#include "irSensor.h"
+#include "loadCell.h"
 
-/*
- * Summary: Header file for linearActuator.c, providing function prototypes 
- * for controlling a 12V linear actuator via an L298N driver and MSP430 Timer_A.
- * Pins: ENA = P1.2 (TA0.1 PWM), IN1 = P1.5, IN2 = P1.4
- * Author(s): [Insert Team Member 1], [Insert Team Member 2], [Insert Team Member 3]
- */
+volatile float latestTemp = 0.0f;
+volatile float latestWeight = 0.0f;
 
-/*
- * Time (ms) the actuator needs to travel its full stroke at the PWM speed set in
- * linearActuator.c. MEASURE THIS on your actuator - 3000 is only a placeholder.
- */
-#define ACTUATOR_FULL_STROKE_MS   3000
+static void sendWeightReading(long rawAvg) {
+    latestWeight = LoadCell_RawToGrams(rawAvg);
+    unsigned long weight_x10 = (unsigned long)(latestWeight * 10.0f + 0.5f);
+    char buf[24];
+    sprintf(buf, "WEIGHT:%lu.%lu\n", weight_x10 / 10, weight_x10 % 10);
+    UART_SendString(buf);
+}
 
-/*
- * The rod is only allowed to extend this percentage of the full stroke (never the max length).
- */
-#define ACTUATOR_MAX_EXTEND_PERCENT   90
+int main(void) {
+    WDTCTL = WDTPW | WDTHOLD;
 
-/*
- * Role: Initializes GPIO pins and configures Timer_A for PWM generation.
- * Parameters: None
- * Returns: None
- */
-void setup_pins_and_timer(void);
+    stepper_init();
+    UART_Init();
+    TempSensor_Init();
+    IRSensor_Init();
+    LoadCell_Init();
 
-/*
- * Role: Extends the linear actuator push rod.
- * Parameters: None
- * Returns: None
- */
-void extend_actuator(void);
+    __bis_SR_register(GIE);
 
-/*
- * Role: Retracts the linear actuator push rod.
- * Parameters: None
- * Returns: None
- */
-void retract_actuator(void);
+    LoadCell_Tare(16);
 
-/*
- * Role: Stops the linear actuator by cutting motor power and clearing pins.
- * Parameters: None
- * Returns: None
- */
-void stop_actuator(void);
+    unsigned char sampleCount = 0;
+    unsigned long adcSum = 0;
+    long weightSum = 0;
+    unsigned char weightCount = 0;
 
-/*
- * Role: Extends the push rod for a fixed time, then stops.
- * Parameters: ms - run time in milliseconds
- * Returns: None
- */
-void extend_actuator_for(unsigned int ms);
+    while (1) {
+        if (dispense_flag == 1) {
+            dispense_flag = 0;
+            IRSensor_Arm();
+            stepper_rotate(512);
+            __delay_cycles(500000);
+            IRSensor_Disarm();
 
-/*
- * Role: Retracts the push rod for a fixed time, then stops.
- * Parameters: ms - run time in milliseconds
- * Returns: None
- */
-void retract_actuator_for(unsigned int ms);
+            if (pill_detected_flag == 1) {
+                UART_SendString("DISPENSE:OK\n");
+            } else {
+                UART_SendString("DISPENSE:FAIL\n");
+            }
 
-/*
- * Role: Extends the push rod to ACTUATOR_MAX_EXTEND_PERCENT (90%) of the full stroke, then stops.
- *       Assumes the rod starts fully retracted (call retract_actuator_home() first if unsure).
- * Parameters: None
- * Returns: None
- */
-void extend_actuator_limited(void);
+            long postSum = 0;
+            unsigned char i;
+            for (i = 0; i < 4; i++) {
+                postSum += LoadCell_ReadRaw();
+            }
+            sendWeightReading(postSum / 4);
+        }
 
-/*
- * Role: Retracts the push rod for the full stroke time so it ends fully retracted (home position).
- * Parameters: None
- * Returns: None
- */
-void retract_actuator_home(void);
+        if (temp_ready_flag == 1) {
+            adcSum += rawADC;
+            temp_ready_flag = 0;
+            sampleCount++;
 
-#endif
+            if ((sampleCount & 0x03) == 0 && LoadCell_IsReady()) {
+                weightSum += LoadCell_ReadRaw();
+                weightCount++;
+            }
+
+            if (sampleCount >= 32) {
+                unsigned int avgADC = (unsigned int)(adcSum >> 5);
+                adcSum = 0;
+                sampleCount = 0;
+
+                latestTemp = ((float)avgADC / 4095.0f) * 330.0f;
+                unsigned long temp_x10 = ((unsigned long)avgADC * 3300UL) / 4095UL;
+                char buf[24];
+                sprintf(buf, "TEMP:%lu.%lu\n", temp_x10 / 10, temp_x10 % 10);
+                UART_SendString(buf);
+
+                if (weightCount > 0) {
+                    sendWeightReading(weightSum / (long)weightCount);
+                    weightSum = 0;
+                    weightCount = 0;
+                }
+            }
+        }
+    }
+    return 0;
+}

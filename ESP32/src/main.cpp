@@ -1,46 +1,152 @@
 #include <Arduino.h>
-#include "esp32uart.h"
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include "nfc.h"
 
-/*
- * Summary: Main application file for the ESP32 subsystem. Currently 
- * configured strictly to test and run the bidirectional UART bridge 
- * to the MSP430 Launchpad.
- * Code Structure: setup(), loop()
- * Author(s): [Insert Team Member 1]
- * Version: 1.0
- */
+#define MSP430_RX_PIN 16
+#define MSP430_TX_PIN 17
+
+const char* ssid = "yoe";
+const char* password = "pword123";
+
+const String baseUrl = "http://10.96.234.203:3000";
+const String nfcEndpoint = baseUrl + "/api/auth/verify-nfc";
+const String tempEndpoint = baseUrl + "/api/temperature";
+const String dispenseStatusEndpoint = baseUrl + "/api/dispense-status";
+const String weightEndpoint = baseUrl + "/api/weight";
+
+String uartBuffer = "";
+
+void postTemperatureToFlask(float tempC) {
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("Error: Wi-Fi Disconnected (temp skipped)");
+        return;
+    }
+
+    HTTPClient http;
+    http.setTimeout(3000);
+    http.begin(tempEndpoint);
+    http.addHeader("Content-Type", "application/json");
+
+    String payload = "{\"temperature\":" + String(tempC, 1) + "}";
+    int httpCode = http.POST(payload);
+    Serial.printf("Temp %.1f C -> HTTP %d\n", tempC, httpCode);
+    http.end();
+}
+
+void postDispenseStatusToFlask(const String& status) {
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("Error: Wi-Fi Disconnected (dispense status skipped)");
+        return;
+    }
+
+    HTTPClient http;
+    http.setTimeout(3000);
+    http.begin(dispenseStatusEndpoint);
+    http.addHeader("Content-Type", "application/json");
+
+    String payload = "{\"status\":\"" + status + "\"}";
+    int httpCode = http.POST(payload);
+    Serial.printf("Dispense %s -> HTTP %d\n", status.c_str(), httpCode);
+    http.end();
+}
+
+void postWeightToFlask(float weightG) {
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("Error: Wi-Fi Disconnected (weight skipped)");
+        return;
+    }
+
+    HTTPClient http;
+    http.setTimeout(3000);
+    http.begin(weightEndpoint);
+    http.addHeader("Content-Type", "application/json");
+
+    String payload = "{\"weight\":" + String(weightG, 1) + "}";
+    int httpCode = http.POST(payload);
+    Serial.printf("Weight %.1f g -> HTTP %d\n", weightG, httpCode);
+    http.end();
+}
+
+void checkMSP430UART() {
+    while (Serial2.available()) {
+        char c = Serial2.read();
+        if (c == '\n') {
+            uartBuffer.trim();
+            if (uartBuffer.startsWith("TEMP:")) {
+                float tempC = uartBuffer.substring(5).toFloat();
+                postTemperatureToFlask(tempC);
+            } else if (uartBuffer.startsWith("DISPENSE:")) {
+                String status = uartBuffer.substring(9);
+                postDispenseStatusToFlask(status);
+            } else if (uartBuffer.startsWith("WEIGHT:")) {
+                float weightG = uartBuffer.substring(7).toFloat();
+                postWeightToFlask(weightG);
+            }
+            uartBuffer = "";
+        } else if (c != '\r') {
+            uartBuffer += c;
+            if (uartBuffer.length() > 64) {
+                uartBuffer = "";
+            }
+        }
+    }
+}
+
+void handleNFC() {
+    String scannedUID = get_nfc_card();
+
+    if (scannedUID != "") {
+        Serial.println("Card Tapped! UID: " + scannedUID);
+
+        if (WiFi.status() == WL_CONNECTED) {
+            HTTPClient http;
+            http.setTimeout(3000);
+            http.begin(nfcEndpoint);
+            http.addHeader("Content-Type", "application/json");
+
+            String jsonPayload = "{\"uid\":\"" + scannedUID + "\"}";
+            Serial.println("Verifying with Server: " + jsonPayload);
+
+            int httpResponseCode = http.POST(jsonPayload);
+
+            if (httpResponseCode == 200) {
+                Serial.println("Server Approved! Sending 'D' to MSP430.");
+                Serial2.print('D');
+            } else {
+                Serial.print("Server Denied. HTTP Code: ");
+                Serial.println(httpResponseCode);
+                String response = http.getString();
+                Serial.println("Reason: " + response);
+            }
+
+            http.end();
+        } else {
+            Serial.println("Error: Wi-Fi Disconnected");
+        }
+
+        delay(3000);
+    }
+}
 
 void setup() {
-    // Initialize USB debugging serial port (Serial0)
     Serial.begin(115200);
-    delay(1000); // Give the serial monitor a second to connect
+    Serial2.begin(9600, SERIAL_8N1, MSP430_RX_PIN, MSP430_TX_PIN);
 
-    // Initialize UART bridge to MSP430 on Serial2
-    esp32_uart_init();
-    
-    Serial.println("ESP32 Main: UART Bridge Ready.");
-    Serial.println("Type 'AUTH' in the Serial Monitor to send the wake-up flag to the MSP430.");
+    init_nfc();
+
+    Serial.print("Connecting to Wi-Fi");
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.println("\nConnected to Wi-Fi! IP Address: ");
+    Serial.println(WiFi.localIP());
 }
 
 void loop() {
-    // 1. Listen for incoming messages from the MSP430 (e.g., "DROP_SUCCESS")
-    String incoming_msg = esp32_check_messages();
-    
-    if (incoming_msg.length() > 0) {
-        Serial.print("Received from MSP430: ");
-        Serial.println(incoming_msg);
-    }
-
-    // 2. Listen for manual input from your computer to test the transmission
-    if (Serial.available() > 0) {
-        String command = Serial.readStringUntil('\n');
-        command.trim();
-        
-        if (command == "AUTH") {
-            Serial.println("Simulating valid NFC tap...");
-            esp32_send_authorization();
-        }
-    }
-    
-    delay(50); // Brief delay for loop stability
+    checkMSP430UART();
+    handleNFC();
+    delay(50);
 }
