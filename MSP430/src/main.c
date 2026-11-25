@@ -6,6 +6,14 @@
 #include "irSensor.h"
 #include "loadCell.h"
 
+extern volatile unsigned char dispense1Flag;
+extern volatile unsigned char dispense2Flag;
+extern volatile unsigned char dispense1Count;
+extern volatile unsigned char dispense2Count;
+extern volatile unsigned char pill_detected_flag;
+extern volatile unsigned char temp_ready_flag;
+extern volatile unsigned int rawADC;
+
 volatile float latestTemp = 0.0f;
 volatile float latestWeight = 0.0f;
 
@@ -15,6 +23,33 @@ static void sendWeightReading(long rawAvg) {
     char buf[24];
     sprintf(buf, "WEIGHT:%lu.%lu\n", weight_x10 / 10, weight_x10 % 10);
     UART_SendString(buf);
+}
+
+static void dispenseOnePill(unsigned char motor, unsigned int steps) {
+    pill_detected_flag = 0;
+    IRSensor_Arm();
+
+    if (motor == 2) {
+        stepper2Rotate(steps);
+    } else {
+        stepper1Rotate(steps);
+    }
+
+    __delay_cycles(500000);
+    IRSensor_Disarm();
+
+    if (pill_detected_flag == 1) {
+        UART_SendString("DISPENSE:OK\n");
+    } else {
+        UART_SendString("DISPENSE:FAIL\n");
+    }
+
+    long postSum = 0;
+    unsigned char i;
+    for (i = 0; i < 4; i++) {
+        postSum += LoadCell_ReadRaw();
+    }
+    sendWeightReading(postSum / 4);
 }
 
 int main(void) {
@@ -36,25 +71,28 @@ int main(void) {
     unsigned char weightCount = 0;
 
     while (1) {
-        if (dispense_flag == 1) {
-            dispense_flag = 0;
-            IRSensor_Arm();
-            stepper_rotate(512);
-            __delay_cycles(500000);
-            IRSensor_Disarm();
-
-            if (pill_detected_flag == 1) {
-                UART_SendString("DISPENSE:OK\n");
-            } else {
-                UART_SendString("DISPENSE:FAIL\n");
+        if (dispense1Flag == 1) {
+            dispense1Flag = 0;
+            if (dispense1Count == 0) {
+                dispense1Count = 1;
             }
+        }
 
-            long postSum = 0;
-            unsigned char i;
-            for (i = 0; i < 4; i++) {
-                postSum += LoadCell_ReadRaw();
+        if (dispense2Flag==1) {
+            dispense2Flag = 0;
+            if (dispense2Count == 0) {
+                dispense2Count = 1;
             }
-            sendWeightReading(postSum / 4);
+        }
+
+        while (dispense1Count > 0) {
+            dispense1Count--;
+            dispenseOnePill(1, 600);
+        }
+
+        while (dispense2Count > 0) {
+            dispense2Count--;
+            dispenseOnePill(2, 512);
         }
 
         if (temp_ready_flag == 1) {
@@ -86,5 +124,4 @@ int main(void) {
             }
         }
     }
-    return 0;
 }

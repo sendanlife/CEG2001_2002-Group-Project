@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 void stepper_init(void);
-void stepper_rotate(int steps);
+void stepper1Rotate(int steps);
+void stepper2Rotate(int steps);
 
 #endif
