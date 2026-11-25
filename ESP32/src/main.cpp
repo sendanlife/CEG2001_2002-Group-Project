@@ -6,11 +6,6 @@
 #define MSP430_RX_PIN 16   // ESP32 RX2  <- MSP430 P3.3 (TXD)
 #define MSP430_TX_PIN 17   // ESP32 TX2  -> MSP430 P3.4 (RXD)
 
-// 1 = link test: send '1' every 2 s and print every raw byte from the MSP430
-//     (card taps are ignored in this mode)
-// 0 = normal operation
-#define UART_LINK_TEST 1
-
 const char* ssid = "reishell";
 const char* password = "020503Tao";
 
@@ -92,7 +87,7 @@ void checkMSP430UART() {
                 float weightG = uartBuffer.substring(7).toFloat();
                 postWeightToFlask(weightG);
             } else if (uartBuffer.length() > 0) {
-                // anything else (HELLO, GOT, ACK...) is shown, not dropped
+                // anything else (STEPS:n, HELLO...) is shown, not dropped
                 Serial.println("MSP430 says: " + uartBuffer);
             }
             uartBuffer = "";
@@ -241,9 +236,11 @@ void handleNFC() {
                 Serial.printf("DEBUG: Patient UUID: %s, Pill Count: %d\n", patientUUID.c_str(), pillCount);
 
                 if (pillCount == 1) {
+                    // motor 1 only
                     Serial.println("DEBUG: 1 pill assigned -> Sending '1' to MSP430.");
                     sendToMSP430('1');
                 } else if (pillCount >= 2) {
+                    // motor 1 first, then motor 2
                     Serial.printf("DEBUG: 2+ pills assigned -> Sending 'D' to MSP430. Pill Count: %d\n", pillCount);
                     sendToMSP430('D');
                 } else {
@@ -280,30 +277,8 @@ void setup() {
     Serial.println(WiFi.localIP());
 }
 
-#if UART_LINK_TEST
-
-void loop() {
-    static unsigned long lastSend = 0;
-
-    // send '1' every 2 s; MSP430 red LED should toggle each time
-    if (millis() - lastSend >= 2000) {
-        lastSend = millis();
-        sendToMSP430('1');
-    }
-
-    // dump every raw byte coming from the MSP430
-    while (Serial2.available()) {
-        uint8_t b = Serial2.read();
-        Serial.printf("RX <- MSP430: 0x%02X '%c'\n", b, (b >= 32 && b < 127) ? (char)b : '.');
-    }
-}
-
-#else
-
 void loop() {
     checkMSP430UART();
     handleNFC();
     delay(50);
 }
-
-#endif

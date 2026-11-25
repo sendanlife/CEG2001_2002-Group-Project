@@ -38,6 +38,7 @@ void __attribute__((interrupt(USCI_A0_VECTOR))) USCI_A0_ISR(void) {
                 dispense1Flag = 1;
             } else if (rx == '2') {
                 dispense2Flag = 1;
+                dispense1Flag = 1;
             } else if (rx == 'D') {
                 dispense1Flag = 1;
                 dispense2Flag = 1;

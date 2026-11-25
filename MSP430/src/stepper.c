@@ -19,34 +19,48 @@ const uint8_t step_sequence_2[4] = {
     BIT4 | BIT1
 };
 
+static uint8_t phase1 = 0;
+static uint8_t phase2 = 0;
+
 void stepper_init(void) {
-    // Stepper 1: plain GPIO outputs, initially off
     P1SEL &= ~STEPPER1_MASK;
     P1DIR |=  STEPPER1_MASK;
     P1OUT &= ~STEPPER1_MASK;
 
-    // Stepper 2: plain GPIO outputs, initially off
     P6SEL &= ~STEPPER2_MASK;
     P6DIR |=  STEPPER2_MASK;
     P6OUT &= ~STEPPER2_MASK;
 }
 
+// One step, coils stay energised, phase is remembered between calls
+void stepper1Step(void) {
+    P1OUT = (P1OUT & ~STEPPER1_MASK) | step_sequence_1[phase1];
+    phase1 = (phase1 + 1) & 0x03;
+    __delay_cycles(STEP_DELAY_CYCLES);
+}
+
+void stepper2Step(void) {
+    P6OUT = (P6OUT & ~STEPPER2_MASK) | step_sequence_2[phase2];
+    phase2 = (phase2 + 1) & 0x03;
+    __delay_cycles(STEP_DELAY_CYCLES);
+}
+
+void stepper1Release(void) { P1OUT &= ~STEPPER1_MASK; }
+void stepper2Release(void) { P6OUT &= ~STEPPER2_MASK; }
+
+// Fixed number of steps (handy for testing)
 void stepper1Rotate(int steps) {
     int i;
     for (i = 0; i < steps; i++) {
-        uint8_t idx = (uint8_t)(i & 0x03);
-        P1OUT = (P1OUT & ~STEPPER1_MASK) | step_sequence_1[idx];
-        __delay_cycles(STEP_DELAY_CYCLES);
+        stepper1Step();
     }
-    P1OUT &= ~STEPPER1_MASK;   // de-energise coils
+    stepper1Release();
 }
 
 void stepper2Rotate(int steps) {
     int i;
     for (i = 0; i < steps; i++) {
-        uint8_t idx = (uint8_t)(i & 0x03);
-        P6OUT = (P6OUT & ~STEPPER2_MASK) | step_sequence_2[idx];
-        __delay_cycles(STEP_DELAY_CYCLES);
+        stepper2Step();
     }
-    P6OUT &= ~STEPPER2_MASK;
+    stepper2Release();
 }
