@@ -9,11 +9,13 @@
 const char* ssid = "yoe";
 const char* password = "pword123";
 
-const String baseUrl = "http://10.96.234.203:3000";
-const String nfcEndpoint = baseUrl + "/api/auth/verify-nfc";
-const String tempEndpoint = baseUrl + "/api/temperature";
+const String baseUrl                = "http://10.215.148.203:3000";
+const String nfcEndpoint            = baseUrl + "/api/auth/verify-nfc";
+const String tempEndpoint           = baseUrl + "/api/temperature";
 const String dispenseStatusEndpoint = baseUrl + "/api/dispense-status";
-const String weightEndpoint = baseUrl + "/api/weight";
+const String weightEndpoint         = baseUrl + "/api/weight";
+const String pickupStatusEndpoint   = baseUrl + "/api/pickup-status";
+const String pendingNfcEndpoint     = baseUrl + "/api/auth/pending-nfc";
 
 String uartBuffer = "";
 
@@ -24,7 +26,7 @@ void postTemperatureToFlask(float tempC) {
     }
 
     HTTPClient http;
-    http.setTimeout(3000);
+    http.setTimeout(1500);   // Keep short so slow Wi-Fi never blocks NFC polling
     http.begin(tempEndpoint);
     http.addHeader("Content-Type", "application/json");
 
@@ -34,37 +36,79 @@ void postTemperatureToFlask(float tempC) {
     http.end();
 }
 
-void postDispenseStatusToFlask(const String& status) {
+void postDispenseStatusToFlask(const String& pillSize, const String& status) {
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("Error: Wi-Fi Disconnected (dispense status skipped)");
         return;
     }
 
     HTTPClient http;
-    http.setTimeout(3000);
+    http.setTimeout(4000);
     http.begin(dispenseStatusEndpoint);
     http.addHeader("Content-Type", "application/json");
 
-    String payload = "{\"status\":\"" + status + "\"}";
+    String payload = "{\"pillSize\":\"" + pillSize + "\",\"status\":\"" + status + "\"}";
     int httpCode = http.POST(payload);
-    Serial.printf("Dispense %s -> HTTP %d\n", status.c_str(), httpCode);
+    Serial.printf("Dispense (%s) %s -> HTTP %d\n", pillSize.c_str(), status.c_str(), httpCode);
     http.end();
 }
 
-void postWeightToFlask(float weightG) {
+void postWeightToFlask(const String& pillSize, float weightG) {
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("Error: Wi-Fi Disconnected (weight skipped)");
         return;
     }
 
     HTTPClient http;
-    http.setTimeout(3000);
+    http.setTimeout(4000);
     http.begin(weightEndpoint);
     http.addHeader("Content-Type", "application/json");
 
-    String payload = "{\"weight\":" + String(weightG, 1) + "}";
+    String payload = "{\"pillSize\":\"" + pillSize + "\",\"weight\":" + String(weightG, 2) + "}";
     int httpCode = http.POST(payload);
-    Serial.printf("Weight %.1f g -> HTTP %d\n", weightG, httpCode);
+    Serial.printf("Weight (%s) %.2f g -> HTTP %d\n", pillSize.c_str(), weightG, httpCode);
+    http.end();
+}
+
+void postPickupStatusToFlask(const String& pillSize, const String& status) {
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("Error: Wi-Fi Disconnected (pickup status skipped)");
+        return;
+    }
+
+    HTTPClient http;
+    http.setTimeout(4000);
+    http.begin(pickupStatusEndpoint);
+    http.addHeader("Content-Type", "application/json");
+
+    String payload = "{\"pillSize\":\"" + pillSize + "\",\"status\":\"" + status + "\"}";
+    int httpCode = http.POST(payload);
+    Serial.printf("Pickup (%s) %s -> HTTP %d\n", pillSize.c_str(), status.c_str(), httpCode);
+    http.end();
+}
+
+void assignNfc(const String& uid) {
+    if (uid == "") {
+        Serial.println("No NFC UID scanned yet to autofill.");
+        return;
+    }
+
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("Error: Wi-Fi Disconnected (assignNfc skipped)");
+        return;
+    }
+
+    HTTPClient http;
+    http.setTimeout(4000);
+    http.begin(pendingNfcEndpoint);
+    http.addHeader("Content-Type", "application/json");
+
+    String payload = "{\"uid\":\"" + uid + "\"}";
+    int httpCode = http.POST(payload);
+    Serial.printf("Autofill NFC %s -> HTTP %d\n", uid.c_str(), httpCode);
+    if (httpCode > 0) {
+        Serial.println("Server Response: " + http.getString());
+    }
     http.end();
 }
 
@@ -77,11 +121,32 @@ void checkMSP430UART() {
                 float tempC = uartBuffer.substring(5).toFloat();
                 postTemperatureToFlask(tempC);
             } else if (uartBuffer.startsWith("DISPENSE:")) {
-                String status = uartBuffer.substring(9);
-                postDispenseStatusToFlask(status);
+                String body = uartBuffer.substring(9);
+                if (body.startsWith("L:")) {
+                    postDispenseStatusToFlask("LARGE", body.substring(2));
+                } else if (body.startsWith("S:")) {
+                    postDispenseStatusToFlask("SMALL", body.substring(2));
+                } else {
+                    postDispenseStatusToFlask("SMALL", body);
+                }
             } else if (uartBuffer.startsWith("WEIGHT:")) {
-                float weightG = uartBuffer.substring(7).toFloat();
-                postWeightToFlask(weightG);
+                String body = uartBuffer.substring(7);
+                if (body.startsWith("L:")) {
+                    postWeightToFlask("LARGE", body.substring(2).toFloat());
+                } else if (body.startsWith("S:")) {
+                    postWeightToFlask("SMALL", body.substring(2).toFloat());
+                } else {
+                    postWeightToFlask("SMALL", body.toFloat());
+                }
+            } else if (uartBuffer.startsWith("PICKUP:")) {
+                String body = uartBuffer.substring(7);
+                if (body.startsWith("L:")) {
+                    postPickupStatusToFlask("LARGE", body.substring(2));
+                } else if (body.startsWith("S:")) {
+                    postPickupStatusToFlask("SMALL", body.substring(2));
+                } else {
+                    postPickupStatusToFlask("SMALL", body);
+                }
             }
             uartBuffer = "";
         } else if (c != '\r') {
@@ -94,46 +159,64 @@ void checkMSP430UART() {
 }
 
 void handleNFC() {
+    static unsigned long lastScanMs = 0;
+    if (millis() - lastScanMs < 1500) {
+        return; // Non-blocking 1.5 s debounce between taps
+    }
+
     String scannedUID = get_nfc_card();
+    if (scannedUID == "") {
+        return;
+    }
 
-    if (scannedUID != "") {
-        Serial.println("Card Tapped! UID: " + scannedUID);
+    lastScanMs = millis();
+    Serial.println("Card Tapped! UID: " + scannedUID);
 
-        if (WiFi.status() == WL_CONNECTED) {
-            HTTPClient http;
-            http.setTimeout(3000);
-            http.begin(nfcEndpoint);
-            http.addHeader("Content-Type", "application/json");
+    if (WiFi.status() == WL_CONNECTED) {
+        HTTPClient http;
+        http.setTimeout(2500);
+        http.begin(nfcEndpoint);
+        http.addHeader("Content-Type", "application/json");
 
-            String jsonPayload = "{\"uid\":\"" + scannedUID + "\"}";
-            Serial.println("Verifying with Server: " + jsonPayload);
+        String jsonPayload = "{\"uid\":\"" + scannedUID + "\"}";
+        Serial.println("Verifying with Server: " + jsonPayload);
 
-            int httpResponseCode = http.POST(jsonPayload);
+        int httpResponseCode = http.POST(jsonPayload);
+        bool shouldAutofill = false;
 
-            if (httpResponseCode == 200) {
-                Serial.println("Server Approved! Sending 'D' to MSP430.");
-                Serial2.print('D');
+        if (httpResponseCode == 200) {
+            String response = http.getString();
+            if (response.indexOf("\"LARGE\"") >= 0) {
+                Serial.println("Server Approved (LARGE)! Sending 'L' to MSP430.");
+                Serial2.print('L');
             } else {
-                Serial.print("Server Denied. HTTP Code: ");
-                Serial.println(httpResponseCode);
-                String response = http.getString();
-                Serial.println("Reason: " + response);
+                Serial.println("Server Approved (SMALL)! Sending 'S' to MSP430.");
+                Serial2.print('S');
             }
-
-            http.end();
         } else {
-            Serial.println("Error: Wi-Fi Disconnected");
+            Serial.print("Server Denied. HTTP Code: ");
+            Serial.println(httpResponseCode);
+            String response = http.getString();
+            Serial.println("Reason: " + response);
+
+            if (httpResponseCode == 403) {
+                shouldAutofill = true;
+            }
         }
 
-        delay(3000);
+        http.end();
+
+        if (shouldAutofill) {
+            assignNfc(scannedUID);
+        }
+    } else {
+        Serial.println("Error: Wi-Fi Disconnected");
     }
 }
 
 void setup() {
     Serial.begin(115200);
     Serial2.begin(9600, SERIAL_8N1, MSP430_RX_PIN, MSP430_TX_PIN);
-
-    init_nfc();
 
     Serial.print("Connecting to Wi-Fi");
     WiFi.begin(ssid, password);
@@ -143,10 +226,13 @@ void setup() {
     }
     Serial.println("\nConnected to Wi-Fi! IP Address: ");
     Serial.println(WiFi.localIP());
+
+    // Initialize MFRC522 after Wi-Fi startup current settles
+    init_nfc();
 }
 
 void loop() {
-    checkMSP430UART();
     handleNFC();
+    checkMSP430UART();
     delay(50);
 }

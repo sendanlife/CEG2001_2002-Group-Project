@@ -1,10 +1,10 @@
 #ifndef STEPPER_H
 #define STEPPER_H
 
-#include <msp430.h>
-#include <stdint.h>
+#define STEPPER_SMALL 1
+#define STEPPER_LARGE 0
 
 void stepper_init(void);
-void stepper_rotate(int steps);
+void stepper_rotate(unsigned char motor, unsigned int steps);
 
 #endif

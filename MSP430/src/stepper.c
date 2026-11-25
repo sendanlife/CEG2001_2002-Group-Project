@@ -1,21 +1,42 @@
+#include <msp430.h>
 #include "stepper.h"
 
-// 4-step sequence for high torque on the 28BYJ-48 Stepper
-const uint8_t step_sequence[4] = {BIT2 | BIT3, BIT3 | BIT4, BIT4 | BIT5, BIT5 | BIT2};
+#define STEPPER1_MASK (BIT2 | BIT3 | BIT4 | BIT5)  // P1.2 - P1.5 (Small pills)
+#define STEPPER2_MASK (BIT1 | BIT2 | BIT3 | BIT4)  // P6.1 - P6.4 (Large pills)
+
+// 2-phase full-step sequence for higher torque on 28BYJ-48
+static const unsigned char stepSeq[4] = { 0x03, 0x06, 0x0C, 0x09 };
 
 void stepper_init(void) {
-    // Configure Stepper Motor Pins (P1.2, P1.3, P1.4, P1.5) as Outputs
-    P1DIR |= BIT2 | BIT3 | BIT4 | BIT5;
-    P1OUT &= ~(BIT2 | BIT3 | BIT4 | BIT5); // Start with motor off
+    // Stepper 1 (Small): P1.2 - P1.5
+    P1SEL &= ~STEPPER1_MASK;
+    P1DIR |= STEPPER1_MASK;
+    P1OUT &= ~STEPPER1_MASK;
+
+    // Stepper 2 (Large): P6.1 - P6.4 (leaves P6.0 ADC untouched)
+    P6SEL &= ~STEPPER2_MASK;
+    P6DIR |= STEPPER2_MASK;
+    P6OUT &= ~STEPPER2_MASK;
 }
 
-void stepper_rotate(int steps) {
-    int i;
+void stepper_rotate(unsigned char motor, unsigned int steps) {
+    unsigned int i;
     for (i = 0; i < steps; i++) {
-        P1OUT &= ~(BIT2 | BIT3 | BIT4 | BIT5); // Clear motor pins
-        P1OUT |= step_sequence[i % 4];         // Energize next coils
-        __delay_cycles(20000);                 // 20ms delay gives motor time to move
+        unsigned char pattern = stepSeq[i & 0x03];
+
+        if (motor == STEPPER_SMALL) {
+            P6OUT = (P6OUT & ~STEPPER2_MASK) | (unsigned char)(pattern << 1);
+        } else {
+            P1OUT = (P1OUT & ~STEPPER1_MASK) | (unsigned char)(pattern << 2);
+        }
+
+        __delay_cycles(10000);  // ~3 ms per step at 1 MHz; adjust if your clock differs
     }
-    // Turn all coils off when done so the motor doesn't overheat
-    P1OUT &= ~(BIT2 | BIT3 | BIT4 | BIT5);     
+
+    // De-energize coils to prevent overheating and save power
+    if (motor == STEPPER_LARGE) {
+        P6OUT &= ~STEPPER2_MASK;
+    } else {
+        P1OUT &= ~STEPPER1_MASK;
+    }
 }

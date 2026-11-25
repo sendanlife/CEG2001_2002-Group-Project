@@ -27,11 +27,15 @@ void UART_SendString(const char *str) {
 
 void __attribute__((interrupt(USCI_A0_VECTOR))) USCI_A0_ISR(void) {
     switch (UCA0IV) {
-        case 2:
-            if (UCA0RXBUF == 'D') {
-                dispense_flag = 1;
+        case 2: {
+            char rx = UCA0RXBUF;
+            if (rx == 'S' || rx == 'D') {
+                dispense_flag = 1;  // Small pill (Stepper 1 + IR 1)
+            } else if (rx == 'L') {
+                dispense_flag = 2;  // Large pill (Stepper 2 + IR 2)
             }
             break;
+        }
         default:
             break;
     }

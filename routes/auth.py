@@ -141,3 +141,67 @@ def verify_nfc():
     else:
         print(f"Card Denied. No user found with NFC ID: {scanned_uid}")
         return error("Unauthorized card tap. NFC ID not found in database.", 403)
+
+@auth_bp.route("/auth/assign-nfc", methods=["POST"])
+def assign_nfc():
+    data = request.get_json(silent=True) or {}
+    missing = require_fields(data, ["uuid", "nfcId"])
+    if missing:
+        return error(f"Missing fields: {', '.join(missing)}", 400)
+
+    uuid_val = str(data["uuid"]).strip().upper()
+    nfc_id = str(data["nfcId"]).strip().upper()
+
+    if not nfc_id:
+        return error("NFC ID cannot be empty", 400)
+
+    user = User.query.filter_by(UUID=uuid_val).first()
+    if not user:
+        return error("User not found", 404)
+
+    existing_owner = User.query.filter(
+        User.NFCId.ilike(nfc_id),
+        User.UUID != user.UUID
+    ).first()
+    if existing_owner:
+        return error(f"NFC ID already assigned to {existing_owner.NAME} ({existing_owner.UUID})", 409)
+
+    try:
+        user.NFCId = nfc_id
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return error(f"Database error: {str(e)}", 500)
+
+    # Clear pending NFC autofill once assigned
+    current_app.config["PENDING_NFC_UID"] = ""
+
+    return success({
+        "patientName": user.NAME,
+        "nfcId": user.NFCId,
+        "uuid": user.UUID,
+        "status": "NFC ID assigned successfully",
+    }, "NFC ID assigned successfully.", 200)
+
+
+@auth_bp.route("/auth/pending-nfc", methods=["POST"])
+def set_pending_nfc():
+    data = request.get_json(silent=True) or {}
+    uid = str(data.get("uid") or "").strip().upper()
+    if not uid:
+        return error("Missing uid", 400)
+
+    current_app.config["PENDING_NFC_UID"] = uid
+
+    # Push live autofill to any open Add Patient / Assign NFC modal
+    socketio = current_app.extensions.get("socketio")
+    if socketio:
+        socketio.emit("new-event", {"eventType": "NFC_SCANNED", "uid": uid})
+
+    return success({"nfcId": uid}, "Pending NFC UID saved for autofill", 200)
+
+
+@auth_bp.route("/auth/pending-nfc", methods=["GET"])
+def get_pending_nfc():
+    uid = (current_app.config.get("PENDING_NFC_UID") or "").strip().upper()
+    return success({"nfcId": uid}, "Fetched pending NFC UID", 200)
