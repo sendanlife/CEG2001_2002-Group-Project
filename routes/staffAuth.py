@@ -1,6 +1,6 @@
 """Medical staff authentication: signup, login, me, patients."""
 import uuid as uuid_lib
-from flask import Blueprint, request
+from flask import Blueprint, current_app, request
 from models.dispenseLog import DispenseLog
 from models.dispenseLog import DispenseLog
 from sqlalchemy.exc import IntegrityError
@@ -423,9 +423,13 @@ def staff_get_patient(uuid):
             "remaining": inv.quantity,     # authoritative stock
         })
 
+    patient_temps = current_app.config.get("PATIENT_TEMPS", {})
+    latest_temp = patient_temps.get(uuid, current_app.config.get("LATEST_TEMP"))
+    
     return success({
         "patient": patient.to_dict(),
         "inventory": inventory_data,
         "schedules": schedule_data,
-        "dispenserDetails": dispenser_data
+        "dispenserDetails": dispenser_data,
+        "temperature": latest_temp
     })

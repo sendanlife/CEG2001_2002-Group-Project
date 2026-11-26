@@ -1,6 +1,7 @@
 """MediTrack IoT Backend - Main entry point."""
 import datetime
-from flask import Flask, jsonify, send_from_directory, request
+
+from flask import Flask, jsonify, send_from_directory, request, current_app
 from flask_cors import CORS
 from flask_socketio import SocketIO
 from config import Config
@@ -9,6 +10,7 @@ from routes import (
     users_bp, pills_bp, schedule_bp,
     dashboard_bp, ingest_bp, auth_bp, staffauth_bp
 )
+from models import User, UserPill, DispenseLog
 
 socketio = SocketIO(cors_allowed_origins="*")
 
@@ -88,6 +90,11 @@ def create_app() -> Flask:
         except (TypeError, ValueError):
             return jsonify({"success": False, "message": "Invalid temperature value"}), 400
 
+        user_uuid = data.get("userId") or app.config.get("ACTIVE_PATIENT_UUID")
+        app.config["LATEST_TEMP"] = temp
+        if user_uuid:
+            app.config.setdefault("PATIENT_TEMPS", {})[user_uuid] = temp
+
         is_alert = temp < 15.0 or temp > 30.0
         now = datetime.datetime.now().isoformat()
 
@@ -96,6 +103,7 @@ def create_app() -> Flask:
         hardware_state["lastUpdated"] = now
 
         event_payload = {
+            "userId": user_uuid,
             "temperature": temp,
             "eventType": "TEMP_ALERT" if is_alert else "TEMP_UPDATE",
             "timestamp": now,
@@ -107,6 +115,24 @@ def create_app() -> Flask:
     @app.route("/api/dispense-status", methods=["POST"])
     def receive_dispense_status():
         data = request.get_json(silent=True) or {}
+        motor    = int(data.get("motor", 0))
+        dropped  = int(data.get("dropped", 0))
+        expected = int(data.get("expected", 1))
+        uuid_in  = str(data.get("uuid", "")).strip()
+
+        if dropped <= 0:
+            status = "FAILED"
+        elif dropped < expected:
+            status = "UNSUCCESSFUL"
+        else:
+            status = "SUCCESS"
+        is_ok = status == "SUCCESS"
+
+        nfc_id = current_app.config.get("LAST_DISPENSE_NFC", "UNKNOWN")
+        user = User.query.get(uuid_in) if uuid_in else None
+        if not user:
+            user = User.query.filter(User.NFCId.ilike(nfc_id)).first()
+        user_name = current_app.config.get("LAST_DISPENSE_USER", "Unknown")
         status = str(data.get("status", "")).upper()
         pill_size = str(data.get("pillSize", "SMALL")).strip().upper()
         is_ok = status == "OK"
@@ -114,6 +140,32 @@ def create_app() -> Flask:
         user_uuid, user_name, nfc_id = _resolve_last_patient()
         now = datetime.datetime.now()
 
+        print(f"DISPENSE: uuid={uuid_in} nfc={nfc_id} user={'found' if user else 'NOT FOUND'} "
+              f"motor={motor} dropped={dropped}/{expected} -> {status}")
+
+        # 1) stock + per-pill log first, in its own commit
+        try:
+            if user and motor in (1, 2) and dropped > 0:
+                ups = UserPill.query.filter_by(UUID=user.UUID).order_by(UserPill.pillsId).all()
+                if len(ups) >= motor:
+                    up = ups[motor - 1]
+                    before = up.quantity or 0
+                    up.quantity = max(0, before - dropped)
+                    db.session.add(DispenseLog(
+                        UUID=user.UUID, pillsId=up.pillsId,
+                        amountDispense=dropped, status=is_ok, timestamp=now,
+                    ))
+                    db.session.commit()
+                    print(f"DISPENSE: {up.pillsId} quantity {before} -> {up.quantity}")
+                else:
+                    print(f"DISPENSE: patient has no pill for motor {motor}")
+        except Exception as e:
+            db.session.rollback()
+            print(f"DispenseLog/quantity error: {e}")
+
+        # 2) history in a separate commit, so a failure here can't undo the stock
+        try:
+            db.session.add(DispenseHistory(nfc_id=nfc_id, status=status, timestamp=now))
         try:
             new_log = DispenseHistory(
                 nfc_id=nfc_id,
@@ -124,7 +176,17 @@ def create_app() -> Flask:
             db.session.commit()
         except Exception as e:
             db.session.rollback()
-            print(f"MySQL Logging Error: {e}")
+            print(f"DispenseHistory error: {e}")
+
+        hardware_state["pillSize"] = pill_size
+        hardware_state["lastPatient"] = user_name
+        hardware_state["lastUpdated"] = now.isoformat()
+        hardware_state["cupStatus"] = "DISPENSED_IR_OK" if is_ok else "DISPENSE_ERROR"
+        _record_hw_event(
+            f"{pill_size} IR {'OK' if is_ok else 'FAIL'}",
+            f"Patient: {user_name}",
+            "ok" if is_ok else "error",
+        )
 
         hardware_state["pillSize"] = pill_size
         hardware_state["lastPatient"] = user_name
@@ -138,13 +200,12 @@ def create_app() -> Flask:
 
         event_payload = {
             "eventType": "PILL_DISPENSED" if is_ok else "DISPENSE_ERROR",
-            "pillSize": pill_size,
             "status": status,
+            "pillSize": pill_size,
             "userId": user_uuid,
             "patientName": user_name,
             "timestamp": now.isoformat(),
         }
-
         socketio.emit("new-event", event_payload)
         return jsonify({"success": True, "data": event_payload}), 200
 
@@ -280,8 +341,8 @@ def create_app() -> Flask:
     @app.route("/api/staff/schedules/<scheduleId>/toggle", methods=["PATCH"])
     def toggle_schedule(scheduleId):
         try:
-            from models import OnSchedule
-
+            from models import OnSchedule  
+            
             schedule = OnSchedule.query.get(scheduleId)
             if not schedule:
                 return jsonify({"success": False, "message": "Schedule not found"}), 404
@@ -297,8 +358,9 @@ def create_app() -> Flask:
     @app.route("/api/staff/schedules/<scheduleId>", methods=["PUT"])
     def update_schedule(scheduleId):
         try:
-            from models import OnSchedule
-
+            from models import OnSchedule  
+            from datetime import datetime
+            
             data = request.get_json()
             schedule = OnSchedule.query.get(scheduleId)
             if not schedule:

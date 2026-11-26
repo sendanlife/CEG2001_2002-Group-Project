@@ -48,31 +48,39 @@
         table { width: 100%; border-collapse: collapse; min-width: 650px; }
         th, td { padding: 10px 8px; text-align: left; border-bottom: 1px solid #eee; font-size: 13px; }
         th { color: #888; font-weight: normal; font-size: 11px; text-transform: uppercase; }
+        table { width: 100%; border-collapse: collapse; min-width: 650px; }
+        th, td { padding: 10px 8px; text-align: left; border-bottom: 1px solid #eee; font-size: 13px; }
+        th { color: #888; font-weight: normal; font-size: 11px; text-transform: uppercase; }
         tr:hover { background: #f8f9fa; }
 
         /* ─── TABLE STYLES FOR MODALS (RESPONSIVE) ─── */
         #patient-details {
+            overflow-x: auto;
             overflow-x: auto;
             -webkit-overflow-scrolling: touch;
         }
         #patient-details table {
             width: 100%;
             min-width: 100%;
+            min-width: 100%;
         }
         #patient-details td,
+        #patient-details td, 
         #patient-details th {
             padding: 2px 7px;
             font-size: 13px;
             white-space: nowrap;
+            white-space: nowrap;
         }
         #patient-details td:first-child {
+            white-space: normal;
             white-space: normal;
         }
         #patient-details td:last-child {
             width: 100%;
+            width: 100%;
         }
 
-        /* ─── STATUS BADGES ─────────────────────── */
         .badge {
             display: inline-block; padding: 4px 10px; border-radius: 20px;
             font-size: 11px; font-weight: 700; text-transform: uppercase;
@@ -112,7 +120,29 @@
         .hw-feed       { list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
         .hw-feed li    { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #f8f9fa; border-radius: 6px; }
 
-        /* ─── MODAL ─────────────────────────────── */
+        /* ─── NOTIFICATIONS & LIVE HARDWARE MONITOR ─── */
+        #notification-box { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+        .alert {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 12px 16px; border-radius: 8px; font-size: 14px; font-weight: 600;
+        }
+        .alert-success { background: #e6f9ee; color: #1e8449; border: 1px solid #a9dfbf; }
+        .alert-warning { background: #fff4e0; color: #b9770e; border: 1px solid #fad7a0; }
+        .alert-error   { background: #ffe6e6; color: #c0392b; border: 1px solid #f5b7b1; }
+
+        .hw-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 14px; margin-bottom: 14px;
+        }
+        .hw-tile {
+            background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 10px; padding: 14px;
+        }
+        .hw-tile-label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.6px; }
+        .hw-tile-value { font-size: 22px; font-weight: 700; color: #1e3c72; margin: 6px 0; }
+        .hw-tile-sub   { font-size: 12px; color: #666; }
+        .hw-feed       { list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+        .hw-feed li    { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #f8f9fa; border-radius: 6px; }
+
         .modal {
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.5); z-index: 1000;
@@ -158,9 +188,22 @@
         .toast.error { background: #e74c3c; }
         @keyframes slideIn { from { transform: translateX(400px); } to { transform: translateX(0); } }
 
+        #notification-box { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+        .alert {
+            padding: 12px 16px; border-radius: 8px; font-weight: 600; font-size: 13px;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .alert-success { background: #e6f9ee; color: #1e8449; }
+        .alert-warning { background: #fff4e0; color: #b9770e; }
+        .alert-error   { background: #ffe6e6; color: #c0392b; }
+
+        @media (max-width: 600px) {
+            .header { flex-direction: column; align-items: flex-start; }
+
         @media (max-width: 600px) {
             .header { flex-direction: column; align-items: flex-start; gap: 12px; }
             .header button { width: 100%; text-align: center; }
+            .actions, .stats { grid-template-columns: 1fr; }
             .actions, .stats { grid-template-columns: 1fr; }
             .modal-content { padding: 20px; }
             .modal-actions { flex-direction: column; }
@@ -176,6 +219,8 @@
         </div>
         <button onclick="logout()">Logout</button>
     </div>
+
+    <div id="notification-box"></div>
 
     <div id="notification-box"></div>
 
@@ -239,18 +284,15 @@
                     <th>Phone</th>
                     <th>NRIC</th>
                     <th>NFC ID</th>
-                    <th>🌡️ Temp (°C)</th>
-                    <th>💊 Pill Status</th>
+                    <th>Pill Status</th>
                     <th>Actions</th>
                 </tr>
             </thead>
             <tbody id="patients-list">
-                <tr><td colspan="9" style="text-align:center; color:#888;">Loading...</td></tr>
+                <tr><td colspan="8" style="text-align:center; color:#888;">Loading...</td></tr>
             </tbody>
         </table>
     </div>
-
-    <!-- ═══════════ MODALS ═══════════ -->
 
     <!-- ADD PATIENT -->
     <div class="modal" id="modal-add-patient">
@@ -274,6 +316,26 @@
             <div class="modal-actions">
                 <button class="btn-secondary" onclick="closeModal('modal-add-patient')">Cancel</button>
                 <button class="btn-primary" onclick="addPatient()">Add Patient</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ASSIGN NFC TO PATIENT -->
+    <div class="modal" id="modal-assign-nfc">
+        <div class="modal-content">
+            <h2>🏷️ Assign NFC Wristband to Patient</h2>
+            <div class="error-box" id="err-assign-nfc"></div>
+            <label>Patient</label>
+            <select id="assign-nfc-patient"></select>
+            <label>NFC Wristband ID</label>
+            <div style="display:flex; gap:8px;">
+                <input type="text" id="assign-nfc-id" placeholder="4396B815" style="flex:1;">
+                <button type="button" class="btn-secondary" style="flex:0 0 auto; padding:10px 12px; margin-bottom: 14px;"
+                        onclick="assignNfc('assign-nfc-id')">Autofill</button>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('modal-assign-nfc')">Cancel</button>
+                <button class="btn-primary" onclick="assignNFC()">Save NFC ID</button>
             </div>
         </div>
     </div>
@@ -334,32 +396,10 @@
         </div>
     </div>
 
-    <!-- ADD SCHEDULE -->
-    <div class="modal" id="modal-add-schedule">
-        <div class="modal-content">
-            <h2>📅 Create Schedule for Patient</h2>
-            <div class="error-box" id="err-add-schedule"></div>
-            <label>Patient</label>
-            <select id="sched-patient"></select>
-            <label>Pill</label>
-            <select id="sched-pill"></select>
-            <label>Time (HH:MM)</label>
-            <input type="time" id="sched-timing" value="08:00">
-            <label>Dispense Amount</label>
-            <input type="number" id="sched-amount" value="1">
-            <label>Repeat Days (comma-separated, leave empty for daily)</label>
-            <input type="text" id="sched-days" placeholder="MON,WED,FRI">
-            <div class="modal-actions">
-                <button class="btn-secondary" onclick="closeModal('modal-add-schedule')">Cancel</button>
-                <button class="btn-primary" onclick="addSchedule()">Create Schedule</button>
-            </div>
-        </div>
-    </div>
-
     <!-- VIEW PATIENT -->
     <div class="modal" id="modal-view-patient">
         <div class="modal-content">
-            <h2>👁️ Patient Details</h2>
+            <h2>Patient Details</h2>
             <label>Patient</label>
             <select id="view-patient" onchange="loadPatientDetails()"></select>
             <div id="patient-details" style="margin-top: 20px;"></div>
@@ -426,10 +466,10 @@
             return res;
         }
 
-        // ─── MODAL CONTROLS ───────────────────────────
         async function openModal(id) {
             document.getElementById(id).classList.add('show');
             if (['modal-assign-pill', 'modal-add-schedule', 'modal-view-patient', 'modal-assign-nfc'].includes(id)) {
+            if (['modal-assign-pill', 'modal-view-patient', 'modal-assign-nfc'].includes(id)) {
                 await populateDropdowns();
             }
         }
@@ -506,7 +546,111 @@
             }
         }
 
-        // ─── LOAD DASHBOARD ───────────────────────────
+        // ─── NFC AUTOFILL & ASSIGN (PARTNER WORKFLOW) ──
+        async function assignNfc(targetInputId = 'p-nfc') {
+            try {
+                const res = await apiFetch(`${API_URL}/auth/pending-nfc`);
+                const result = await res.json();
+                const uid = (result.data?.nfcId || result.data?.uid || '').trim().toUpperCase();
+
+                if (!uid) {
+                    toast('error', 'No pending NFC card to autofill');
+                    return;
+                }
+
+                const inputEl = document.getElementById(targetInputId);
+                if (inputEl) {
+                    inputEl.value = uid;
+                }
+                toast('success', `Autofilled NFC ID: ${uid}`);
+            } catch (err) {
+                console.error(err);
+                toast('error', 'Failed to fetch pending NFC ID');
+            }
+        }
+
+        async function assignNFC() {
+            clearErrors();
+            const uuid = document.getElementById('assign-nfc-patient').value;
+            const nfcId = document.getElementById('assign-nfc-id').value.trim().toUpperCase();
+
+            if (!uuid) return showErr('err-assign-nfc', 'Please select a patient');
+            if (!nfcId) return showErr('err-assign-nfc', 'Please enter or autofill an NFC ID');
+
+            try {
+                const res = await apiFetch(`${API_URL}/auth/assign-nfc`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ uuid, nfcId }),
+                });
+                const result = await res.json();
+
+                if (!result.success) {
+                    return showErr('err-assign-nfc', result.message || 'Failed to assign NFC ID');
+                }
+
+                toast('success', `Assigned ${nfcId} to ${result.data?.patientName || uuid}`);
+                closeModal('modal-assign-nfc');
+                document.getElementById('assign-nfc-id').value = '';
+                await loadDashboard().then(() => loadHardwareStatus());
+            } catch (err) {
+                console.error(err);
+                showErr('err-assign-nfc', 'Network error while assigning NFC ID');
+            }
+        }
+
+        async function assignNfc(targetInputId = 'p-nfc') {
+            try {
+                const res = await apiFetch(`${API_URL}/auth/pending-nfc`);
+                const result = await res.json();
+                const uid = (result.data?.nfcId || '').trim().toUpperCase();
+
+                if (!uid) {
+                    toast('error', 'No pending NFC card to autofill');
+                    return;
+                }
+
+                const inputEl = document.getElementById(targetInputId);
+                if (inputEl) {
+                    inputEl.value = uid;
+                }
+                toast('success', `Autofilled NFC ID: ${uid}`);
+            } catch (err) {
+                console.error(err);
+                toast('error', 'Failed to fetch pending NFC ID');
+            }
+        }
+
+        async function assignNFC() {
+            clearErrors();
+            const uuid = document.getElementById('assign-nfc-patient').value;
+            const nfcId = document.getElementById('assign-nfc-id').value.trim().toUpperCase();
+
+            if (!uuid) return showErr('err-assign-nfc', 'Please select a patient');
+            if (!nfcId) return showErr('err-assign-nfc', 'Please enter or autofill an NFC ID');
+
+            try {
+                const res = await apiFetch(`${API_URL}/auth/assign-nfc`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ uuid, nfcId }),
+                });
+                const result = await res.json();
+
+                if (!result.success) {
+                    return showErr('err-assign-nfc', result.message || 'Failed to assign NFC ID');
+                }
+
+                toast('success', `Assigned ${nfcId} to ${result.data?.patientName || uuid}`);
+                closeModal('modal-assign-nfc');
+                document.getElementById('assign-nfc-id').value = '';
+                await loadDashboard();
+            } catch (err) {
+                console.error(err);
+                showErr('err-assign-nfc', 'Network error while assigning NFC ID');
+            }
+        }
+
         async function loadDashboard() {
             const res = await apiFetch(`${API_URL}/staff/dashboard`);
             const result = await res.json();
@@ -523,7 +667,7 @@
             const list = document.getElementById('patients-list');
             list.innerHTML = '';
             if (data.patients.length === 0) {
-                list.innerHTML = '<tr><td colspan="9" style="text-align:center; color:#888;">No patients assigned yet.</td></tr>';
+                list.innerHTML = '<tr><td colspan="8" style="text-align:center; color:#888;">No patients assigned yet.</td></tr>';
                 return;
             }
 
@@ -537,9 +681,6 @@
                         <td>${p.phoneNumber || '-'}</td>
                         <td>${nricDisplay}</td>
                         <td>${p.NFCId || '-'}</td>
-                        <td class="temp-cell" id="temp-${p.UUID}">
-                            <span class="badge badge-loading">Loading…</span>
-                        </td>
                         <td id="pills-${p.UUID}">
                             <span class="badge badge-loading">Loading…</span>
                         </td>
@@ -558,11 +699,9 @@
             await Promise.all(data.patients.map(p => loadPatientStatus(p.UUID)));
         }
 
-        // ─── FETCH & RENDER TEMP + PILL STATUS FOR ONE PATIENT ─────
         async function loadPatientStatus(uuid) {
-            const tempCell = document.getElementById(`temp-${uuid}`);
             const pillsCell = document.getElementById(`pills-${uuid}`);
-            if (!tempCell || !pillsCell) return;
+            if (!pillsCell) return;
 
             try {
                 const res = await apiFetch(`${API_URL}/staff/patients/${uuid}`);
@@ -582,6 +721,7 @@
                     tempCell.innerHTML = `<span class="${cls}">${temp.toFixed(1)}°C</span>`;
                 }
 
+                
                 const LOW_THRESHOLD = 5;
                 const inventory = data.inventory || [];
 
@@ -599,11 +739,11 @@
                                         <span style="word-break: break-word;">${p.pillName} <small>(${qty})</small></span>
                                     </div>`;
                         }).join('') +
+                        }).join('') +
                     '</div>';
                 }
             } catch (err) {
                 console.error('Status load failed for', uuid, err);
-                tempCell.innerHTML = '<span class="badge badge-na">Error</span>';
                 pillsCell.innerHTML = '<span class="badge badge-na">Error</span>';
             }
         }
@@ -624,28 +764,27 @@
             ).join('');
 
             document.getElementById('assign-pill').innerHTML = pillOptions;
-            document.getElementById('sched-pill').innerHTML = pillOptions;
 
             const patientOptions = patientsCache.map(p =>
                 `<option value="${p.UUID}">${p.NAME} (${p.UUID})</option>`
             ).join('');
 
             document.getElementById('assign-patient').innerHTML = patientOptions;
-            document.getElementById('sched-patient').innerHTML = patientOptions;
             document.getElementById('view-patient').innerHTML = patientOptions;
+            document.getElementById('assign-nfc-patient').innerHTML = patientOptions;
             document.getElementById('assign-nfc-patient').innerHTML = patientOptions;
         }
 
-        // ─── ADD PATIENT ──────────────────────────────
         async function addPatient() {
             clearErrors();
             const payload = {
                 name: document.getElementById('p-name').value.trim(),
                 email: document.getElementById('p-email').value.trim().toLowerCase(),
                 phoneNumber: document.getElementById('p-phone').value.trim(),
-                NFCid: document.getElementById('p-nfc').value.trim().toUpperCase(),
+                NFCid: document.getElementById('p-nfc').value.trim().toUpperCase().toUpperCase(),
                 nric: document.getElementById('p-nric').value.trim().toUpperCase(),
             };
+
 
             const res = await apiFetch(`${API_URL}/staff/patients`, {
                 method: 'POST',
@@ -666,7 +805,6 @@
             loadDashboard().then(() => loadHardwareStatus());
         }
 
-        // ─── DELETE PATIENT ───────────────────────────
         async function deletePatient(uuid, name) {
             if (!confirm(`Are you sure you want to delete patient ${name} (${uuid})?\n\nThis will also delete all their schedules, inventory, and history.`)) {
                 return;
@@ -686,6 +824,7 @@
 
                 toast('success', 'Patient deleted successfully');
                 loadDashboard().then(() => loadHardwareStatus());
+                loadDashboard();
             } catch (err) {
                 console.error(err);
                 toast('error', 'Network error while deleting patient');
@@ -693,6 +832,7 @@
         }
 
         // ─── ADD PILL ─────────────────────────────────
+
         async function addPill() {
             clearErrors();
             const payload = {
@@ -715,7 +855,6 @@
             document.getElementById('pill-desc').value = '';
         }
 
-        // ─── ASSIGN PILL TO PATIENT ───────────────────
         async function assignPill() {
             clearErrors();
             const uuid = document.getElementById('assign-patient').value;
@@ -739,32 +878,6 @@
             loadPatientStatus(uuid);
         }
 
-        // ─── ADD SCHEDULE ─────────────────────────────
-        async function addSchedule() {
-            clearErrors();
-            const uuid = document.getElementById('sched-patient').value;
-            const payload = {
-                pillsId: document.getElementById('sched-pill').value,
-                timing: document.getElementById('sched-timing').value,
-                dispenseAmount: parseInt(document.getElementById('sched-amount').value) || 1,
-                onRepeat: document.getElementById('sched-days').value.trim() || null,
-                isRepeat: true,
-            };
-
-            const res = await apiFetch(`${API_URL}/staff/patients/${uuid}/schedules`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-            });
-            const result = await res.json();
-
-            if (!result.success) return showErr('err-add-schedule', result.message);
-
-            toast('success', 'Schedule created');
-            closeModal('modal-add-schedule');
-        }
-
-        // ─── VIEW PATIENT ─────────────────────────────
         async function viewPatient(uuid) {
             await openModal('modal-view-patient');
             document.getElementById('view-patient').value = uuid;
@@ -782,6 +895,7 @@
                 const res = await apiFetch(`${API_URL}/staff/patients/${uuid}`);
                 const result = await res.json();
 
+
                 if (!result.success) {
                     detailBox.innerHTML = `<div style="color:#c0392b; padding:15px; background:#ffe6e6; border-radius:8px;">Error: ${result.message}</div>`;
                     return;
@@ -789,7 +903,6 @@
 
                 const data = result.data;
                 const inventory = data.inventory || [];
-                const schedules = data.schedules || [];
                 const dispenserDetails = data.dispenserDetails || [];
 
                 const rawTemp = data.temperature ?? data.patient?.temperature ?? dispenserDetails?.[0]?.temperature ?? null;
@@ -849,14 +962,15 @@
                         </tr>`;
                     }).join('');
 
+
                 const dispRows = dispenserDetails.length === 0
                     ? '<tr><td colspan="3" style="color:#888;">No dispenser data</td></tr>'
                     : dispenserDetails.map(d => `
                         <tr>
                             <td>${d.pillName}</td>
-                            <td>${d.dispensed > 0 ? "Success" : "None"}</td>
                             <td>${d.remaining}</td>
                         </tr>`).join('');
+
 
                 const nricDisplay = data.patient.NRIC || data.patient.nric || 'N/A';
 
@@ -874,15 +988,9 @@
                         <tbody>${invRows}</tbody>
                     </table>
 
-                    <h3 style="font-size:14px; color:#2a5298; margin: 15px 0 8px;">Schedules</h3>
-                    <table>
-                        <thead><tr><th>Status</th><th>Time</th><th>Pill</th><th>Amount</th><th>Days</th><th>Actions</th></tr></thead>
-                        <tbody>${schedRows}</tbody>
-                    </table>
-
                     <h3 style="font-size:14px; color:#2a5298; margin:15px 0 8px;">Dispenser Details</h3>
                     <table>
-                        <thead><tr><th>Pill</th><th>Dispensed</th><th>Remaining</th></tr></thead>
+                        <thead><tr><th>Pill</th><th>Remaining</th></tr></thead>
                         <tbody>${dispRows}</tbody>
                     </table>
                 `;
@@ -1094,6 +1202,20 @@
                 if (event.eventType === 'TEMP_ALERT') {
                     showNotification('error', `Temperature alert: ${Number(event.temperature).toFixed(1)}°C is out of safe range (15–30°C)!`);
                     prependHwFeed('TEMP ALERT', `${Number(event.temperature).toFixed(1)}°C`, 'error', event.timestamp);
+            if (event.temperature !== undefined && event.temperature !== null) {
+                const temp = Number(event.temperature);
+                let cls = 'temp-ok';
+                if (temp >= 30) cls = 'temp-danger';
+                else if (temp >= 25 || temp < 15) cls = 'temp-warn';
+                const html = `<span class="${cls}">${temp.toFixed(1)}°C</span>`;
+
+                if (event.userId) {
+                    const tempCell = document.getElementById(`temp-${event.userId}`);
+                    if (tempCell) tempCell.innerHTML = html;
+                } else {
+                    document.querySelectorAll('.temp-cell').forEach(cell => {
+                        cell.innerHTML = html;
+                    });
                 }
                 return;
             }
@@ -1153,11 +1275,33 @@
                 showNotification('error', `${size} pill compartment is empty! Refill required.`);
                 if (event.userId) loadPatientStatus(event.userId);
             }
+            if (event.eventType === 'PILL_DISPENSED' && event.userId) {
+                loadPatientStatus(event.userId);
+                const currentModalPatient = document.getElementById('view-patient').value;
+                if (currentModalPatient === event.userId) {
+                    showNotification('success', 'Pill Dispensed Successfully');
+                    loadPatientDetails();
+                }
+            }
+
+            if (event.eventType === 'LOW_STOCK' && event.userId) {
+                showNotification('warning', 'Warning: Pill stock is running low!');
+                loadPatientStatus(event.userId);
+            }
+
+            if (event.eventType === 'EMPTY_MACHINE' && event.userId) {
+                showNotification('error', 'Machine is empty! Refill required.');
+                loadPatientStatus(event.userId);
+            }
+
+            if (event.eventType === 'TEMP_ALERT') showNotification('error', 'Temperature out of safe range!');
+            if (event.eventType === 'DISPENSE_ERROR') showNotification('error', 'Dispense error detected!');
         });
 
         function showNotification(type, message) {
             const box = document.getElementById('notification-box');
             if (!box) return toast(type === 'error' ? 'error' : 'success', message);
+            if (!box) return;
             const div = document.createElement('div');
             div.className = `alert alert-${type}`;
             div.innerHTML = `
