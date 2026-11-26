@@ -9,10 +9,10 @@ The system identifies a patient using an MFRC522 NFC card, retrieves that patien
 - Staff signup and login using JWT bearer authentication
 - Patient registration and assignment to a staff account
 - Pill catalogue management
-- Patient pill inventory and dose assignment
+- Patient pill inventory and dose assignment (Gabriel)
 - NFC patient authentication
 - Live temperature reporting
-- Two-motor pill dispensing
+- Two-motor pill dispensing (Gabriel)
 - IR-based pill-drop detection
 - HX711 load-cell weight verification
 - Cup pickup and missed-pickup reporting
