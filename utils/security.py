@@ -1,4 +1,3 @@
-"""Password hashing and JWT token utilities (Python 3.7 compatible)."""
 from datetime import datetime, timedelta
 from typing import Optional
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -6,27 +5,19 @@ import jwt
 
 from config import Config
 
-
-# ─── Password Hashing ───────────────────────────────────────
-
 def hash_password(password: str) -> str:
-    """Hash a plaintext password using PBKDF2-SHA256."""
     if not password:
         raise ValueError("Password cannot be empty")
     return generate_password_hash(password, method="pbkdf2:sha256")
 
 
 def verify_password(password: str, hashed: str) -> bool:
-    """Verify a plaintext password against its stored hash."""
     if not password or not hashed:
         return False
     try:
         return check_password_hash(hashed, password)
     except Exception:
         return False
-
-
-# ─── JWT Tokens ─────────────────────────────────────────────
 
 ALGORITHM = "HS256"
 DEFAULT_EXPIRY_HOURS = 24

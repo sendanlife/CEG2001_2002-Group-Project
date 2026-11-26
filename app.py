@@ -1,4 +1,3 @@
-"""MediTrack IoT Backend - Main entry point."""
 import datetime
 
 from flask import Flask, jsonify, send_from_directory, request, current_app
@@ -7,10 +6,11 @@ from flask_socketio import SocketIO
 from config import Config
 from database import init_db, db
 from routes import (
-    users_bp, pills_bp, schedule_bp,
-    dashboard_bp, ingest_bp, auth_bp, staffauth_bp
+    users_bp, pills_bp,
+    auth_bp, staffauth_bp
 )
 from models import User, UserPill, DispenseLog
+from database.connection import DispenseHistory
 
 socketio = SocketIO(cors_allowed_origins="*")
 
@@ -26,11 +26,9 @@ def create_app() -> Flask:
     init_db(app)
 
     with app.app_context():
-        import models
-        from database.connection import DispenseHistory
         db.create_all()
 
-    for bp in (auth_bp, users_bp, pills_bp, schedule_bp, dashboard_bp, ingest_bp, staffauth_bp):
+    for bp in (auth_bp, users_bp, pills_bp, staffauth_bp):
         app.register_blueprint(bp, url_prefix="/api")
 
     hardware_state = {
@@ -125,7 +123,6 @@ def create_app() -> Flask:
         uuid_in = str(data.get("uuid", "")).strip()
         pill_size = str(data.get("pillSize", "SMALL")).strip().upper()
 
-        # three outcomes: 0 dropped = FAILED, some = UNSUCCESSFUL, all = SUCCESS
         if dropped <= 0:
             status = "FAILED"
         elif dropped < expected:
@@ -134,7 +131,6 @@ def create_app() -> Flask:
             status = "SUCCESS"
         is_ok = status == "SUCCESS"
 
-        # who is the patient: the uuid sent by the ESP32 first, else the last NFC tap
         nfc_id = current_app.config.get("LAST_DISPENSE_NFC", "UNKNOWN")
         user = User.query.get(uuid_in) if uuid_in else None
         if user is None and nfc_id and nfc_id != "UNKNOWN":
@@ -150,7 +146,6 @@ def create_app() -> Flask:
         print(f"DISPENSE: uuid={uuid_in} nfc={nfc_id} user={'found' if user else 'NOT FOUND'} "
               f"motor={motor} dropped={dropped}/{expected} -> {status}")
 
-        # 1) stock + per-pill log first, in its own commit
         try:
             if user and motor in (1, 2) and dropped > 0:
                 ups = UserPill.query.filter_by(UUID=user.UUID).order_by(UserPill.pillsId).all()
@@ -170,7 +165,6 @@ def create_app() -> Flask:
             db.session.rollback()
             print(f"DispenseLog/quantity error: {e}")
 
-        # 2) history in a separate commit, so a failure here can't undo the stock
         try:
             db.session.add(DispenseHistory(nfc_id=nfc_id, status=status, timestamp=now))
             db.session.commit()
@@ -178,7 +172,6 @@ def create_app() -> Flask:
             db.session.rollback()
             print(f"DispenseHistory error: {e}")
 
-        # 3) live hardware state for the dashboard
         if is_ok:
             severity = "ok"
         elif dropped > 0:
@@ -222,8 +215,8 @@ def create_app() -> Flask:
             return jsonify({"success": False, "message": "Invalid weight value"}), 400
 
         PILL_PROFILES = {
-            "SMALL": {"weight_g": 0.50},   # Update with your measured small pill weight
-            "LARGE": {"weight_g": 1.20},   # Update with your measured large pill weight
+            "SMALL": {"weight_g": 0.50},  
+            "LARGE": {"weight_g": 1.20},   
         }
         pill_size = str(data.get("pillSize", "SMALL")).strip().upper()
         pill_weight_g = PILL_PROFILES.get(pill_size, PILL_PROFILES["SMALL"])["weight_g"]
@@ -338,52 +331,6 @@ def create_app() -> Flask:
     @app.route("/health")
     def health():
         return {"status": "healthy", "service": "meditrack"}
-
-    @app.route("/api/staff/schedules/<scheduleId>/toggle", methods=["PATCH"])
-    def toggle_schedule(scheduleId):
-        try:
-            from models import OnSchedule  
-            
-            schedule = OnSchedule.query.get(scheduleId)
-            if not schedule:
-                return jsonify({"success": False, "message": "Schedule not found"}), 404
-
-            schedule.isActive = not schedule.isActive
-            db.session.commit()
-
-            return jsonify({"success": True, "message": "Status toggled"})
-        except Exception as e:
-            db.session.rollback()
-            return jsonify({"success": False, "message": str(e)}), 500
-
-    @app.route("/api/staff/schedules/<scheduleId>", methods=["PUT"])
-    def update_schedule(scheduleId):
-        try:
-            from models import OnSchedule
-            
-            data = request.get_json()
-            schedule = OnSchedule.query.get(scheduleId)
-            if not schedule:
-                return jsonify({"success": False, "message": "Schedule not found"}), 404
-
-            schedule.pillsId = data.get("pillsId", schedule.pillsId)
-            schedule.pillsDose = data.get("pillsDose", schedule.pillsDose)
-
-            if "timing" in data and data["timing"]:
-                try:
-                    schedule.timing = datetime.datetime.strptime(data["timing"], "%H:%M").time()
-                except ValueError:
-                    return jsonify({"success": False, "message": "Invalid time format"}), 400
-
-            schedule.dispenseAmount = data.get("dispenseAmount", schedule.dispenseAmount)
-            schedule.onRepeat = data.get("onRepeat", schedule.onRepeat)
-            schedule.isRepeat = data.get("isRepeat", schedule.isRepeat)
-
-            db.session.commit()
-            return jsonify({"success": True, "message": "Schedule updated"})
-        except Exception as e:
-            db.session.rollback()
-            return jsonify({"success": False, "message": str(e)}), 500
 
     @app.route("/api/staff/patients/<uuid>", methods=["DELETE"])
     def delete_patient(uuid):

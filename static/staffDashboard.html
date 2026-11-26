@@ -50,7 +50,6 @@
         th { color: #888; font-weight: normal; font-size: 11px; text-transform: uppercase; }
         tr:hover { background: #f8f9fa; }
 
-        /* ─── TABLE STYLES FOR MODALS (RESPONSIVE) ─── */
         #patient-details {
             overflow-x: auto;
             -webkit-overflow-scrolling: touch;
@@ -88,7 +87,6 @@
         .temp-danger    { color: #c0392b; }
         .pill-stack     { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
 
-        /* ─── NOTIFICATIONS & LIVE HARDWARE MONITOR ─── */
         #notification-box { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
         .alert {
             display: flex; justify-content: space-between; align-items: center;
@@ -246,7 +244,6 @@
         </table>
     </div>
 
-    <!-- ADD PATIENT -->
     <div class="modal" id="modal-add-patient">
         <div class="modal-content">
             <h2>➕ Add New Patient</h2>
@@ -272,7 +269,6 @@
         </div>
     </div>
 
-    <!-- ASSIGN NFC TO PATIENT -->
     <div class="modal" id="modal-assign-nfc">
         <div class="modal-content">
             <h2>🏷️ Assign NFC Wristband to Patient</h2>
@@ -292,7 +288,6 @@
         </div>
     </div>
 
-    <!-- ADD PILL -->
     <div class="modal" id="modal-add-pill">
         <div class="modal-content">
             <h2>💊 Add Pill to Catalogue</h2>
@@ -308,7 +303,6 @@
         </div>
     </div>
 
-    <!-- ASSIGN PILL TO PATIENT -->
     <div class="modal" id="modal-assign-pill">
         <div class="modal-content">
             <h2>📋 Assign Pill to Patient</h2>
@@ -328,7 +322,6 @@
         </div>
     </div>
 
-    <!-- VIEW PATIENT -->
     <div class="modal" id="modal-view-patient">
         <div class="modal-content">
             <h2>Patient Details</h2>
@@ -399,7 +392,6 @@
             setTimeout(() => t.remove(), 3000);
         }
 
-        // ─── NFC AUTOFILL & ASSIGN (PARTNER WORKFLOW) ──
         async function assignNfc(targetInputId = 'p-nfc') {
             try {
                 const res = await apiFetch(`${API_URL}/auth/pending-nfc`);
@@ -540,7 +532,6 @@
             toast('success', 'Dashboard refreshed');
         }
 
-        // ─── POPULATE DROPDOWNS ───────────────────────
         async function populateDropdowns() {
             const pillsRes = await apiFetch(`${API_URL}/staff/pills`);
             const pillsResult = await pillsRes.json();
@@ -592,7 +583,7 @@
         }
 
         async function deletePatient(uuid, name) {
-            if (!confirm(`Are you sure you want to delete patient ${name} (${uuid})?\n\nThis will also delete all their schedules, inventory, and history.`)) {
+            if (!confirm(`Are you sure you want to delete patient ${name} (${uuid})?\n\nThis will also delete all their inventory, and history.`)) {
                 return;
             }
 
@@ -615,8 +606,6 @@
                 toast('error', 'Network error while deleting patient');
             }
         }
-
-        // ─── ADD PILL ─────────────────────────────────
 
         async function addPill() {
             clearErrors();
@@ -746,7 +735,6 @@
             }
         }
 
-        // ─── LIVE HARDWARE MONITOR HELPERS ────────────
         function setHwTemp(temp, userId = null) {
             if (temp === null || temp === undefined || isNaN(Number(temp))) return;
             const t = Number(temp);
@@ -837,7 +825,6 @@
             }
         }
 
-        // ─── SOCKET.IO REAL-TIME UPDATES ──────────────
         socket.on('connect', () => {
             console.log('Staff dashboard connected to WebSockets');
         });
@@ -846,7 +833,6 @@
             console.log('Real-time event received:', event);
             if (!event) return;
 
-            // Optional real-time NFC autofill if backend emits NFC_SCANNED
             if (event.eventType === 'NFC_SCANNED' && event.uid) {
                 const uid = String(event.uid).trim().toUpperCase();
                 if (document.getElementById('modal-add-patient')?.classList.contains('show')) {
@@ -862,7 +848,6 @@
             const size = (event.pillSize || 'SMALL').toUpperCase();
             const who = event.patientName || event.userId || 'Patient';
 
-            // 1. Live Temperature
             if (event.temperature !== undefined && event.temperature !== null) {
                 setHwTemp(event.temperature, event.userId || null);
                 if (event.eventType === 'TEMP_ALERT') {
@@ -872,8 +857,6 @@
                 return;
             }
 
-            // 2. IR Sensor Dispense Result (/api/dispense-status)
-            //    status = SUCCESS (all dropped) | UNSUCCESSFUL (some dropped) | FAILED (none dropped)
             if (event.eventType === 'PILL_DISPENSED' || event.eventType === 'DISPENSE_ERROR') {
                 const motor = event.motor || '?';
                 const status = String(event.status || (event.eventType === 'PILL_DISPENSED' ? 'SUCCESS' : 'FAILED')).toUpperCase();
@@ -895,7 +878,6 @@
                     showNotification('error', `Motor ${motor}: no pill detected for ${who}. Check for a jam or an empty hopper.`);
                 }
 
-                // stock changes on success AND on a partial drop
                 if (event.userId) {
                     loadPatientStatus(event.userId);
                     if (document.getElementById('view-patient').value === event.userId) {
@@ -904,7 +886,6 @@
                 }
             }
 
-            // 3. Post-Dispense Weight Verification (/api/weight)
             if (event.eventType === 'DISPENSE_VERIFIED') {
                 const g = Number(event.weightAdded || 0).toFixed(2);
                 document.getElementById('hw-weight').textContent = `+${g} g`;
@@ -923,7 +904,6 @@
                 prependHwFeed(`${size} WEIGHT FAIL`, `+${g} g · ${who}`, 'error', event.timestamp);
             }
 
-            // 4. Cup Pickup Detection (/api/pickup-status)
             if (event.eventType === 'PILL_TAKEN') {
                 setHwCupStatus('Cup Cleared', 'Taken', 'badge-ok', `${size} dose collected by ${who}`);
                 showNotification('success', `${who} collected the ${size} pill from the cup.`);
@@ -934,7 +914,6 @@
                 prependHwFeed(`${size} MISSED`, `Timeout · ${who}`, 'warning', event.timestamp);
             }
 
-            // 5. Stock Alerts
             if (event.eventType === 'LOW_STOCK') {
                 showNotification('warning', `Warning: ${size} pill stock is running low!`);
                 if (event.userId) loadPatientStatus(event.userId);

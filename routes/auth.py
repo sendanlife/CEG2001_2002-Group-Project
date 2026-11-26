@@ -102,7 +102,6 @@ def assign_nfc():
         db.session.rollback()
         return error(f"Database error: {str(e)}", 500)
 
-    # Clear pending NFC autofill once assigned
     current_app.config["PENDING_NFC_UID"] = ""
 
     return success({

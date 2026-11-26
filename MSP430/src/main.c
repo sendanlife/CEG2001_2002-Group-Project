@@ -6,16 +6,14 @@
 #include "irSensor.h"
 #include "loadCell.h"
 
-// 1 = also drive the status LEDs + buzzer from statusIndicator.c (your teammate's code)
-// 0 = leave them out (use this if statusIndicator.c / .h are not in your project)
 #define USE_STATUS_LEDS 1
 
 #if USE_STATUS_LEDS
 #include "statusIndicator.h"
 #define LED_INIT()   Status_Init()
-#define LED_BUSY()   Status_SetDispensing()   // yellow while a request is running
-#define LED_OK()     Status_SetDispensed()    // green when everything dropped
-#define LED_FAIL()   Status_SetFail()         // red when anything was missing
+#define LED_BUSY()   Status_SetDispensing()   
+#define LED_OK()     Status_SetDispensed()  
+#define LED_FAIL()   Status_SetFail()        
 #define LED_BEEP()   Status_BeepComplete()
 #else
 #define LED_INIT()
@@ -25,21 +23,15 @@
 #define LED_BEEP()
 #endif
 
-// ---- tuning ----
-#define NO_PILL_TIMEOUT_STEPS 2500   // give up after ~30 s with no new pill
-#define LOCKOUT_STEPS         25     // ~0.3 s ignore time after each pill (debounce)
-#define SETTLE_DELAY_CYCLES   1000000UL   // ~1 s for the tray to stop moving before weighing
-#define POST_DISPENSE_SAMPLES 16     // load-cell readings averaged after a dispense
-#define BUTTON_BIT            BIT1   // P1.1 = S2 button on the LaunchPad (test without the ESP32)
-#define SEND_RAW_TEMP         1      // 1 = also send RAW:<adc> with each TEMP line (debug; set 0 once temperature is right)
-#define LOADCELL_DEBUG        1      // 1 = send an LC: line about once a second (set 0 once the load cell works)
+#define NO_PILL_TIMEOUT_STEPS 2500   
+#define LOCKOUT_STEPS         25    
+#define SETTLE_DELAY_CYCLES   1000000UL   
+#define POST_DISPENSE_SAMPLES 16     
+#define BUTTON_BIT            BIT1  
+#define SEND_RAW_TEMP         1     
+#define LOADCELL_DEBUG        1      
 
-// ---- low power ----
-// 1 = the CPU sleeps whenever there is nothing to do and wakes on an interrupt
-//     (temperature tick ~every 156 ms, or a byte from the ESP32). 0 = busy loop, as before.
 #define LOW_POWER             1
-// LPM0 = CPU off, clocks stay on (the UART keeps working as it is). Do not change this to LPM3_bits
-// unless you also move the UART to ACLK.
 #define LOW_POWER_BITS        LPM0_bits
 
 extern volatile unsigned char dispense1Flag;
@@ -65,8 +57,6 @@ static void sendWeightGrams(float g) {
 }
 
 #if LOADCELL_DEBUG
-// LC:OK raw=<last raw> counts=<raw - tare> g*10=<grams x10>     or     LC:<what is wrong>
-// To calibrate: put a known weight on, then HX711_SCALE_FACTOR = counts / grams.
 static void sendLoadCellLine(void) {
     char lc[72];
     LoadCellStatus st = LoadCell_GetStatus();
@@ -80,15 +70,13 @@ static void sendLoadCellLine(void) {
 }
 #endif
 
-// Spins one motor until `expected` pills were seen by its own IR sensor.
-// Returns 1 if every expected pill dropped, 0 otherwise.
 static unsigned char dispensePills(unsigned char motor, unsigned char expected) {
     unsigned char pills = 0;
     unsigned int sinceProgress = 0;
     unsigned char lockout = 0;
 
     char run[16];
-    sprintf(run, "RUN:%u:%u\n", motor, expected);   // motor is about to start
+    sprintf(run, "RUN:%u:%u\n", motor, expected);  
     UART_SendString(run);
 
     IRSensor_Arm(motor);
@@ -119,7 +107,6 @@ static unsigned char dispensePills(unsigned char motor, unsigned char expected) 
         stepper1Release();
     }
 
-    // a pill still falling after the motor stopped
     if (pills < expected && lockout == 0) {
         __delay_cycles(500000);
         if (IRSensor_PillDetected(motor)) {
@@ -129,20 +116,18 @@ static unsigned char dispensePills(unsigned char motor, unsigned char expected) 
 
     IRSensor_Disarm(motor);
 
-    // DISPENSE:<motor>:<dropped>:<expected>  (Flask decides success/unsuccessful/failed)
     char info[32];
     sprintf(info, "DISPENSE:%u:%u:%u\n", motor, pills, expected);
     UART_SendString(info);
 
-    // let vibration die down, then weigh: discard one reading, average the rest
     __delay_cycles(SETTLE_DELAY_CYCLES);
-    LoadCell_ReadRaw();                          // throw away the first reading after the wait
+    LoadCell_ReadRaw();                         
 
-    float grams = LoadCell_GetGrams(POST_DISPENSE_SAMPLES);   // average + zero deadband
-    if (LoadCell_GetStatus() == LC_OK) {         // nothing is sent while the HX711 is silent, stuck or clipped
+    float grams = LoadCell_GetGrams(POST_DISPENSE_SAMPLES);   
+    if (LoadCell_GetStatus() == LC_OK) {         
         sendWeightGrams(grams);
     }
-    LoadCell_ResetFilter();                      // the weight just changed: do not blend it with old values
+    LoadCell_ResetFilter();                 
 
     return (pills >= expected) ? 1 : 0;
 }
@@ -153,21 +138,21 @@ int main(void) {
     UART_Init();
     TempSensor_Init();
     LoadCell_Init();
-    LED_INIT();                 // before IRSensor_Init, so it cannot disturb the IR pull-ups on Port 2
+    LED_INIT();               
     IRSensor_Init();
-    stepper_init();             // last, so nothing overwrites the stepper pins
+    stepper_init();           
 
-    P1DIR &= ~BUTTON_BIT;       // S2 button: input with pull-up
+    P1DIR &= ~BUTTON_BIT;      
     P1REN |=  BUTTON_BIT;
     P1OUT |=  BUTTON_BIT;
 
     __bis_SR_register(GIE);
 
-    __delay_cycles(500000);     // let the HX711 and temperature sensor supply settle
-    LoadCell_Tare(16);          // scale must be empty and still at power-up
-    UART_SendString("READY\n"); // ESP32 monitor shows: MSP430 says: READY
+    __delay_cycles(500000);     
+    LoadCell_Tare(16);        
+    UART_SendString("READY\n");
 #if LOADCELL_DEBUG
-    sendLoadCellLine();         // tells you right away if the HX711 is missing / stuck
+    sendLoadCellLine();         
 #endif
 
     unsigned char sampleCount = 0;
@@ -177,15 +162,14 @@ int main(void) {
 #endif
 
     while (1) {
-        // S2 button = same as a card tap with 1 pill per motor
         if (!(P1IN & BUTTON_BIT)) {
-            __delay_cycles(20000);                 // debounce
+            __delay_cycles(20000);                 
             if (!(P1IN & BUTTON_BIT)) {
                 expected1 = 1;
                 expected2 = 1;
                 dispense1Flag = 1;
                 dispense2Flag = 1;
-                while (!(P1IN & BUTTON_BIT));      // wait for release
+                while (!(P1IN & BUTTON_BIT));     
             }
         }
 
@@ -207,18 +191,17 @@ int main(void) {
             unsigned char allOk = 1;
 
             char req[16];
-            sprintf(req, "REQ:%u:%u\n", expected1, expected2);   // request received
+            sprintf(req, "REQ:%u:%u\n", expected1, expected2);  
             UART_SendString(req);
 
             LED_BUSY();
 
-            // motor 1 runs first, then motor 2
             while (dispense1Count > 0) {
                 dispense1Count--;
                 if (!dispensePills(1, expected1)) {
                     allOk = 0;
                 }
-                __delay_cycles(1000000);       // ~1 s pause before the next motor
+                __delay_cycles(1000000);      
             }
 
             while (dispense2Count > 0) {
@@ -236,8 +219,6 @@ int main(void) {
             }
         }
 
-        // Weight: reads whenever the HX711 has a conversion ready (about every 100 ms) and keeps the
-        // 5 x 5 smoothed value inside the driver. It never waits, so nothing else is held up.
         LoadCell_Poll();
 
         if (temp_ready_flag == 1) {
@@ -245,9 +226,9 @@ int main(void) {
             temp_ready_flag = 0;
             sampleCount++;
 
-            LoadCell_Tick();              // lets the driver notice an HX711 that went silent
+            LoadCell_Tick();            
 #if LOADCELL_DEBUG
-            if (++lcTicks >= 6) {         // 6 ticks = about 1 s
+            if (++lcTicks >= 6) {     
                 lcTicks = 0;
                 sendLoadCellLine();
             }
@@ -265,11 +246,9 @@ int main(void) {
                 UART_SendString(buf);
 
 #if SEND_RAW_TEMP
-                sprintf(buf, "RAW:%u\n", avgADC);           // raw ADC count: volts = RAW / 4095 * 3.3
+                sprintf(buf, "RAW:%u\n", avgADC);           
                 UART_SendString(buf);
 #endif
-
-                // latest smoothed weight, only while the load cell is healthy
                 if (LoadCell_HasWeight() && LoadCell_GetStatus() == LC_OK) {
                     sendWeightGrams(LoadCell_GetWeight());
                 }
@@ -277,9 +256,6 @@ int main(void) {
         }
 
 #if LOW_POWER
-        // Nothing left to do this pass: sleep until an interrupt. Interrupts are switched off while we
-        // decide, so a byte or tick that arrives right now cannot be missed; the same instruction that
-        // goes to sleep switches them back on.
         __bic_SR_register(GIE);
         if (!temp_ready_flag && !dispense1Flag && !dispense2Flag && !LoadCell_IsReady()) {
             __bis_SR_register(LOW_POWER_BITS | GIE);

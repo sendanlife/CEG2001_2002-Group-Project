@@ -1,4 +1,3 @@
-"""Medical staff authentication: signup, login, me, patients."""
 import uuid as uuid_lib
 from flask import Blueprint, current_app, request
 from models.dispenseLog import DispenseLog
@@ -7,7 +6,6 @@ from sqlalchemy.exc import IntegrityError
 
 from database import db
 from models import MedicalStaff, User, Medical
-from models.onSchedule import OnSchedule
 from models.pill import Pill
 from models.userPill import UserPill
 from utils import (
@@ -19,7 +17,6 @@ from utils import (
 staffauth_bp = Blueprint("staff", __name__)
 
 
-# ─── Helper: verify a staff JWT ──────────────────────────
 def _current_staff():
     """Return the currently logged-in staff member, or None."""
     auth = request.headers.get("Authorization", "")
@@ -31,7 +28,6 @@ def _current_staff():
     return MedicalStaff.query.get(payload["uuid"])
 
 
-# ─── SIGNUP ──────────────────────────────────────────────
 @staffauth_bp.route("/staff/signup", methods=["POST"])
 def staff_signup():
     """POST /api/staff/signup — register a new staff account."""
@@ -46,7 +42,6 @@ def staff_signup():
     if MedicalStaff.query.filter_by(email=email).first():
         return error("Email already registered", 409)
 
-    # Generate a short 5-char staff ID
     for _ in range(10):
         ms_id = "MS" + uuid_lib.uuid4().hex[:3].upper()
         if not MedicalStaff.query.get(ms_id):
@@ -78,8 +73,6 @@ def staff_signup():
         201,
     )
 
-
-# ─── LOGIN ───────────────────────────────────────────────
 @staffauth_bp.route("/staff/login", methods=["POST"])
 def staff_login():
     """POST /api/staff/login — authenticate a staff member."""
@@ -104,7 +97,6 @@ def staff_login():
     )
 
 
-# ─── ME ──────────────────────────────────────────────────
 @staffauth_bp.route("/staff/me", methods=["GET"])
 def staff_me():
     """GET /api/staff/me — return the current staff from token."""
@@ -114,7 +106,6 @@ def staff_me():
     return success(staff.to_dict())
 
 
-# ─── DASHBOARD DATA ──────────────────────────────────────
 @staffauth_bp.route("/staff/dashboard", methods=["GET"])
 def staff_dashboard():
     """GET /api/staff/dashboard — aggregated data for the staff view."""
@@ -122,7 +113,6 @@ def staff_dashboard():
     if not staff:
         return error("Invalid or missing token", 401)
 
-    # All patients assigned to this staff
     patients = User.query.filter_by(MSId=staff.MSId).all()
 
     patient_list = []
@@ -145,7 +135,6 @@ def staff_dashboard():
         "patients": patient_list,
     })
     
-# ─── ADD PATIENT ─────────────────────────────────────────
 @staffauth_bp.route("/staff/patients", methods=["POST"])
 def staff_add_patient():
     """POST /api/staff/patients — staff creates a patient account."""
@@ -155,34 +144,28 @@ def staff_add_patient():
 
     data = request.get_json() or {}
     
-    # Only require name, email, nric, and NFCid. Phone is optional.
     missing = require_fields(data, ["name", "email", "nric", "NFCid"])
     if missing:
         return error(f"Missing fields: {', '.join(missing)}", 400)
         
-    # Clean the inputs first
     email = data["email"].strip().lower()
     nric = data["nric"].strip().upper()
     phone = data.get("phoneNumber", "").strip()
     
-    # Validate
     if not validate_email(email):
         return error("Invalid Email format.", 400)
         
     if not validate_nric(nric):
         return error("Invalid NRIC. Must be in format S1234567A.", 400)
         
-    # Only validate phone if they actually typed one
     if phone and not validate_phone_number(phone):
         return error("Invalid Phone Number. Must be a valid 8-digit SG number.", 400)
 
-    # Check for duplicates (using the cleaned email variable)
     if User.query.filter_by(email=email).first():
         return error("Email already registered", 409)
     if User.query.filter_by(NFCId=data["NFCid"]).first():
         return error("NFC wristband already registered", 409)
 
-    # Generate short IDs
     user_uuid = None
     for _ in range(10):
         temp_uuid = uuid_lib.uuid4().hex[:5].upper()
@@ -201,8 +184,8 @@ def staff_add_patient():
         user = User(
             UUID=user_uuid,
             NAME=data["name"].strip(),
-            email=email,                 # ✅ Uses the defined variable
-            nric=nric,                   # ✅ Saves as uppercase
+            email=email,                
+            nric=nric,                  
             phoneNumber=phone,
             MSId=staff.MSId,
             NFCId=data["NFCid"].strip(),
@@ -229,7 +212,6 @@ def staff_add_patient():
 
     return success(user.to_dict(), "Patient added", 201)
 
-# ─── LIST PILLS (for the dropdowns) ──────────────────────
 @staffauth_bp.route("/staff/pills", methods=["GET"])
 def staff_list_pills():
     """GET /api/staff/pills — list pills in the catalogue."""
@@ -240,8 +222,6 @@ def staff_list_pills():
     pills = Pill.query.all()
     return success([p.to_dict() for p in pills])
 
-
-# ─── ADD PILL TO CATALOGUE ───────────────────────────────
 @staffauth_bp.route("/staff/pills", methods=["POST"])
 def staff_add_pill():
     """POST /api/staff/pills — add a pill to the catalogue."""
@@ -273,8 +253,6 @@ def staff_add_pill():
 
     return success(pill.to_dict(), "Pill added", 201)
 
-
-# ─── ASSIGN PILL TO PATIENT ──────────────────────────────
 @staffauth_bp.route("/staff/patients/<uuid>/pills", methods=["POST"])
 def staff_assign_pill(uuid):
     """POST /api/staff/patients/<uuid>/pills — assign a pill to a patient."""
@@ -315,65 +293,6 @@ def staff_assign_pill(uuid):
 
     return success(up.to_dict(), "Pill assigned", 201)
 
-
-# ─── CREATE SCHEDULE FOR PATIENT ─────────────────────────
-@staffauth_bp.route("/staff/patients/<uuid>/schedules", methods=["POST"])
-def staff_create_schedule(uuid):
-    """POST /api/staff/patients/<uuid>/schedules."""
-    from datetime import datetime
-
-    staff = _current_staff()
-    if not staff:
-        return error("Invalid or missing token", 401)
-
-    if not User.query.get(uuid):
-        return error("Patient not found", 404)
-
-    data = request.get_json() or {}
-    missing = require_fields(data, ["pillsId", "timing"])
-    if missing:
-        return error(f"Missing fields: {', '.join(missing)}", 400)
-
-    if not Pill.query.get(data["pillsId"]):
-        return error("Pill not found", 404)
-
-    timing = None
-    for fmt in ("%H:%M:%S", "%H:%M"):
-        try:
-            timing = datetime.strptime(data["timing"], fmt).time()
-            break
-        except ValueError:
-            continue
-    if not timing:
-        return error("Invalid timing. Use HH:MM", 400)
-
-    for _ in range(10):
-        schedule_id = "SCH" + uuid_lib.uuid4().hex[:2].upper()
-        if not OnSchedule.query.get(schedule_id):
-            break
-
-    try:
-        schedule = OnSchedule(
-            scheduleId=schedule_id,
-            UUID=uuid,
-            pillsId=data["pillsId"],
-            pillsDose=int(data.get("pillsDose", 1)),
-            onRepeat=data.get("onRepeat"),
-            timing=timing,
-            dispenseAmount=int(data.get("dispenseAmount", 1)),
-            isActive=True,
-            isRepeat=bool(data.get("isRepeat", True)),
-        )
-        db.session.add(schedule)
-        db.session.commit()
-    except Exception as e:
-        db.session.rollback()
-        return error(f"Database error: {str(e)}", 500)
-
-    return success(schedule.to_dict(), "Schedule created", 201)
-
-
-# ─── GET PATIENT DETAILS ─────────────────────────────────
 @staffauth_bp.route("/staff/patients/<uuid>", methods=["GET"])
 def staff_get_patient(uuid):
     """GET /api/staff/patients/<uuid> — full patient view."""
@@ -400,18 +319,6 @@ def staff_get_patient(uuid):
         }
         for inv, pill in inventory
     ]
-
-    schedules = (
-        db.session.query(OnSchedule, Pill)
-        .join(Pill, Pill.pillsId == OnSchedule.pillsId)
-        .filter(OnSchedule.UUID == uuid)
-        .order_by(OnSchedule.timing)
-        .all()
-    )
-    schedule_data = [
-        {**s.to_dict(), "pillName": p.pillName}
-        for s, p in schedules
-    ]
     
     dispenser_data = []
     for inv, pill in inventory:
@@ -420,7 +327,7 @@ def staff_get_patient(uuid):
         dispenser_data.append({
             "pillName": pill.pillName,
             "dispensed": dispensed,
-            "remaining": inv.quantity,     # authoritative stock
+            "remaining": inv.quantity,     
         })
 
     patient_temps = current_app.config.get("PATIENT_TEMPS", {})
@@ -429,7 +336,6 @@ def staff_get_patient(uuid):
     return success({
         "patient": patient.to_dict(),
         "inventory": inventory_data,
-        "schedules": schedule_data,
         "dispenserDetails": dispenser_data,
         "temperature": latest_temp
     })

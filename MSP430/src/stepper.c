@@ -1,10 +1,10 @@
 #include <msp430.h>
 #include "stepper.h"
 
-#define STEP_DELAY_CYCLES 12000   // ~12 ms per step at 1 MHz (~80 steps/s)
+#define STEP_DELAY_CYCLES 12000  
 
-#define STEPPER1_MASK (BIT2 | BIT3 | BIT4 | BIT5)   // P1.2 - P1.5
-#define STEPPER2_MASK (BIT1 | BIT2 | BIT3 | BIT4)   // P6.1 - P6.4
+#define STEPPER1_MASK (BIT2 | BIT3 | BIT4 | BIT5)  
+#define STEPPER2_MASK (BIT1 | BIT2 | BIT3 | BIT4)   
 
 const uint8_t step_sequence_1[4] = {
     BIT2 | BIT3,
@@ -33,7 +33,6 @@ void stepper_init(void) {
     P6OUT &= ~STEPPER2_MASK;
 }
 
-// One step, coils stay energised, phase is remembered between calls
 void stepper1Step(void) {
     P1OUT = (P1OUT & ~STEPPER1_MASK) | step_sequence_1[phase1];
     phase1 = (phase1 + 1) & 0x03;
@@ -49,7 +48,6 @@ void stepper2Step(void) {
 void stepper1Release(void) { P1OUT &= ~STEPPER1_MASK; }
 void stepper2Release(void) { P6OUT &= ~STEPPER2_MASK; }
 
-// Fixed number of steps (handy for testing)
 void stepper1Rotate(int steps) {
     int i;
     for (i = 0; i < steps; i++) {

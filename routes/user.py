@@ -1,4 +1,3 @@
-"""User management routes."""
 from flask import Blueprint, request
 from database import db
 from models import User, Medical
@@ -66,7 +65,6 @@ def create_user():
 
 @users_bp.route("/user/<uuid>", methods=["DELETE"])
 def delete_user(uuid):
-    """DELETE /api/user/<uuid> — cascades to medical, userPill, onSchedule."""
     user = User.query.get(uuid)
     if not user:
         return error("User not found", 404)

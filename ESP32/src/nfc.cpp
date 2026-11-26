@@ -2,13 +2,13 @@
 #include <SPI.h>
 #include <MFRC522.h>
 
-#define SS_PIN  21   // Change to 5 if your SDA/SS wire is connected to GPIO 5
+#define SS_PIN  21  
 #define RST_PIN 22
 
 MFRC522 rfid(SS_PIN, RST_PIN);
 
 void init_nfc() {
-    SPI.begin(18, 19, 23, SS_PIN);   // ESP32 VSPI: SCK=18, MISO=19, MOSI=23
+    SPI.begin(18, 19, 23, SS_PIN);   
     rfid.PCD_Init();
     delay(50);
     rfid.PCD_SetAntennaGain(rfid.RxGain_max);
@@ -22,7 +22,6 @@ void init_nfc() {
 }
 
 String get_nfc_card() {
-    // Auto-recover if a 3.3V Wi-Fi current spike resets the MFRC522 antenna
     byte txControl = rfid.PCD_ReadRegister(rfid.TxControlReg);
     if ((txControl & 0x03) != 0x03 && txControl != 0x00 && txControl != 0xFF) {
         Serial.println("MFRC522 reset detected -> reinitializing...");

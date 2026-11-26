@@ -39,8 +39,6 @@ def create_pill():
     pill = Pill(
         pillsId=data["pillsId"],
         pillName=data["pillName"],
-        # weight=data["weight"],
-        # quantity=data.get("quantity", 0),
         DESCRIPTION=data.get("DESCRIPTION", ""),
     )
     db.session.add(pill)
@@ -59,10 +57,6 @@ def update_pill(pills_id):
     data = request.get_json() or {}
     if "pillName" in data:
         pill.pillName = data["pillName"]
-    # if "weight" in data:
-    #     pill.weight = data["weight"]
-    # if "quantity" in data:
-    #     pill.quantity = data["quantity"]
     if "DESCRIPTION" in data:
         pill.DESCRIPTION = data["DESCRIPTION"]
 
@@ -72,7 +66,6 @@ def update_pill(pills_id):
 
 @pills_bp.route("/pills/<pills_id>", methods=["DELETE"])
 def delete_pill(pills_id):
-    """DELETE /api/pills/<pills_id> — cascades to userPill & onSchedule."""
     pill = Pill.query.get(pills_id)
     if not pill:
         return error("Pill not found", 404)
@@ -80,9 +73,6 @@ def delete_pill(pills_id):
     db.session.delete(pill)
     db.session.commit()
     return success(None, "Pill deleted")
-
-
-# ─── USER INVENTORY ───────────────────────────────────────────
 
 @pills_bp.route("/users/<uuid>/pills", methods=["GET"])
 def list_user_pills(uuid):
@@ -129,7 +119,6 @@ def get_assigned_pill_count(uuid):
     if not user:
         return error("Patient not found", 404)
 
-    # motor 1 = first pill by pillsId, motor 2 = second
     ups = UserPill.query.filter_by(UUID=uuid).order_by(UserPill.pillsId).all()
     smallPill = int(ups[0].pillsDose or 1) if len(ups) > 0 else 0
     bigPill = int(ups[1].pillsDose or 1) if len(ups) > 1 else 0

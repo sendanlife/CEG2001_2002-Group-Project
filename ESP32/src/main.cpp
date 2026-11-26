@@ -4,10 +4,10 @@
 #include "nfc.h"
 #include <MFRC522.h>
 
-extern MFRC522 rfid;   // the RC522 object is defined in nfc.cpp
+extern MFRC522 rfid; 
 
-#define MSP430_RX_PIN 16   // ESP32 RX2  <- MSP430 P3.3 (TXD)
-#define MSP430_TX_PIN 17   // ESP32 TX2  -> MSP430 P3.4 (RXD)
+#define MSP430_RX_PIN 16  
+#define MSP430_TX_PIN 17  
 
 const char* ssid = "reishell";
 const char* password = "020503Tao";
@@ -36,7 +36,7 @@ void postTemperatureToFlask(float tempC) {
     }
 
     HTTPClient http;
-    http.setTimeout(1500);   // Keep short so slow Wi-Fi never blocks NFC polling
+    http.setTimeout(1500);  
     http.begin(tempEndpoint);
     http.addHeader("Content-Type", "application/json");
 
@@ -134,7 +134,6 @@ void checkMSP430UART() {
                 float tempC = uartBuffer.substring(5).toFloat();
                 postTemperatureToFlask(tempC);
             } else if (uartBuffer.startsWith("DISPENSE:")) {
-                // DISPENSE:<motor>:<dropped>:<expected>
                 int a = uartBuffer.indexOf(':', 9);
                 int b = (a > 0) ? uartBuffer.indexOf(':', a + 1) : -1;
                 if (a > 0 && b > a) {
@@ -143,13 +142,12 @@ void checkMSP430UART() {
                     int expected = uartBuffer.substring(b + 1).toInt();
                     postDispenseStatusToFlask(motor, dropped, expected);
                 } else {
-                    Serial.println("MSP430 says: " + uartBuffer);   // old-format line, not posted
+                    Serial.println("MSP430 says: " + uartBuffer); 
                 }
             } else if (uartBuffer.startsWith("WEIGHT:")) {
                 float weightG = uartBuffer.substring(7).toFloat();
                 postWeightToFlask("SMALL", weightG);
             } else if (uartBuffer.length() > 0) {
-                // anything else (STEPS:n, HELLO...) is shown, not dropped
                 Serial.println("MSP430 says: " + uartBuffer);
             }
             uartBuffer = "";
@@ -226,7 +224,6 @@ int assignPillCountToPatient(const String& patientUUID) {
         String response = http.getString();
         Serial.println("Assigned Pill Count Response: " + response);
         pillCount = extractJsonInt(response, "assignedPillCount");
-        // the route may name the doses smallPill/bigPill or dose1/dose2: accept either
         smallPill = extractJsonInt(response, "smallPill");
         if (smallPill < 0) smallPill = extractJsonInt(response, "dose1");
         bigPill = extractJsonInt(response, "bigPill");
@@ -242,14 +239,12 @@ int assignPillCountToPatient(const String& patientUUID) {
     return pillCount;
 }
 
-// Sends one command byte to the MSP430 and logs it
 void sendToMSP430(char cmd) {
     Serial2.write((uint8_t)cmd);
-    Serial2.flush();   // wait until the byte has physically left the pin
+    Serial2.flush();  
     Serial.printf("TX -> MSP430: '%c' (0x%02X)\n", cmd, (uint8_t)cmd);
 }
 
-// 'S' + dose for motor 1 + dose for motor 2, as ASCII digits
 void sendDosesToMSP430(int d1, int d2) {
     if (d1 > 9) d1 = 9;
     if (d2 > 9) d2 = 9;
@@ -263,7 +258,7 @@ void sendDosesToMSP430(int d1, int d2) {
 void handleNFC() {
     static unsigned long lastScanMs = 0;
     if (millis() - lastScanMs < 1500) {
-        return; // Non-blocking 1.5 s debounce between taps
+        return; 
     }
 
     String scannedUID = get_nfc_card();
@@ -337,8 +332,6 @@ void handleNFC() {
     }
 }
 
-// The RC522 answers 0x91 / 0x92 on its version register.
-// 0x00 or 0xFF means it is not answering (wiring, a 3.3 V dip, or the chip reset itself).
 bool readerAlive() {
     byte v = rfid.PCD_ReadRegister(MFRC522::VersionReg);
     return v != 0x00 && v != 0xFF;
@@ -373,7 +366,7 @@ void checkServer() {
 }
 
 void setup() {
-    setCpuFrequencyMhz(80);   // low power: 80 MHz is plenty (default is 240 MHz); Wi-Fi needs at least 80
+    setCpuFrequencyMhz(80);  
     Serial.begin(115200);
     Serial2.begin(9600, SERIAL_8N1, MSP430_RX_PIN, MSP430_TX_PIN);
 
@@ -385,10 +378,8 @@ void setup() {
     }
     Serial.println("\nConnected to Wi-Fi! IP Address: ");
     Serial.println(WiFi.localIP());
-    WiFi.setSleep(true);      // low power: the Wi-Fi radio sleeps between beacons (modem sleep)
-
-    // Initialize MFRC522 after Wi-Fi startup current settles
-    init_nfc();
+    WiFi.setSleep(true);    
+    
     printReaderStatus();
     checkServer();
     Serial.println("Ready. Tap a card.");

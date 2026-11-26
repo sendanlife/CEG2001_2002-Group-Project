@@ -1,29 +1,25 @@
 #include <msp430.h>
 #include "loadCell.h"
 
-// ~0.3 s of polling: well over one conversion period (10 SPS = 100 ms)
 #define READ_TIMEOUT       25000UL
-#define SATURATION_LEVEL   8388000L     // the HX711 clips at +8388607 / -8388608
-#define SAME_READINGS      3            // this many identical bad readings in a row = a real fault
+#define SATURATION_LEVEL   8388000L     
+#define SAME_READINGS      3            
 
-// ---- state ----
-static long hx711_offset = 0;           // tare value, in raw counts
-static long hx711_last = 0;             // last good raw reading
-static unsigned char hx711_missing = 0; // a blocking read timed out
+static long hx711_offset = 0;      
+static long hx711_last = 0;            
+static unsigned char hx711_missing = 0; 
 
 static unsigned char ticksSinceRead = 0;
-static unsigned char zeroRun = 0;       // consecutive readings that were exactly 0
-static unsigned char satRun = 0;        // consecutive readings at the ADC limit
+static unsigned char zeroRun = 0;      
+static unsigned char satRun = 0;     
 
-static long avgSum = 0;                 // readings being averaged right now
+static long avgSum = 0;               
 static unsigned char avgCount = 0;
 
-static long filterBuf[FILTER_SIZE];     // integer moving average: exact, no float drift
+static long filterBuf[FILTER_SIZE];     
 static unsigned char filterIdx = 0;
 static unsigned char filterCount = 0;
 static long filterSum = 0;
-
-// ---------------------------------------------------------------- helpers
 
 void LoadCell_ResetFilter(void) {
     unsigned char i;
@@ -83,19 +79,16 @@ static float applyDeadband(float g) {
     return g;
 }
 
-// ---------------------------------------------------------------- setup
-
 void LoadCell_Init(void) {
     HX711_DOUT_SEL &= ~HX711_DOUT_BIT;
     HX711_SCK_SEL &= ~HX711_SCK_BIT;
 
     HX711_DOUT_DIR &= ~HX711_DOUT_BIT;
-    HX711_DOUT_REN |= HX711_DOUT_BIT;      // pull-up: an unplugged DOUT reads "not ready", never a fake reading
+    HX711_DOUT_REN |= HX711_DOUT_BIT;      
     HX711_DOUT_OUT |= HX711_DOUT_BIT;
 
     HX711_SCK_DIR |= HX711_SCK_BIT;
 
-    // Power-cycle reset the HX711 (>60 us HIGH) and let the ADC settle
     HX711_SCK_OUT |= HX711_SCK_BIT;
     __delay_cycles(100);
     HX711_SCK_OUT &= ~HX711_SCK_BIT;
@@ -116,9 +109,6 @@ unsigned char LoadCell_IsConnected(void) {
     return !hx711_missing;
 }
 
-// ---------------------------------------------------------------- one reading
-
-// Returns 1 and stores the value in *out, or 0 if the HX711 did not answer in time.
 static unsigned char readRawOnce(long *out) {
     unsigned long timeout = READ_TIMEOUT;
     while (HX711_DOUT_IN & HX711_DOUT_BIT) {
@@ -131,10 +121,7 @@ static unsigned char readRawOnce(long *out) {
     unsigned long count = 0;
     unsigned char i;
 
-    // 24 data bits, then a 25th pulse that keeps Channel A / gain 128 for the next reading
     for (i = 0; i < 25; i++) {
-        // SCK must never stay high for more than ~60 us, so no interrupt while it is high.
-        // Interrupts stay allowed while SCK is low (UART keeps working).
         __bic_SR_register(GIE);
 
         HX711_SCK_OUT |= HX711_SCK_BIT;
@@ -151,7 +138,6 @@ static unsigned char readRawOnce(long *out) {
         __delay_cycles(5);
     }
 
-    // 24-bit two's complement -> signed value
     long value = (long)count;
     if (count & 0x800000UL) {
         value -= 0x1000000L;
@@ -176,13 +162,13 @@ long LoadCell_ReadAverage(unsigned char samples) {
         samples = 1;
     }
     if (samples > 100) {
-        samples = 100;               // keeps the 32-bit sum from overflowing
+        samples = 100;            
     }
 
     for (i = 0; i < samples; i++) {
         long v;
         if (!readRawOnce(&v)) {
-            break;                   // HX711 not answering: use what we have
+            break;                   
         }
         sum += v;
         good++;
@@ -205,13 +191,11 @@ void LoadCell_Tare(unsigned char samples) {
         good++;
     }
 
-    if (good > 0) {                  // if the HX711 never answered, keep the old offset
+    if (good > 0) {                
         hx711_offset = sum / (long)good;
     }
     LoadCell_ResetFilter();
 }
-
-// ---------------------------------------------------------------- normal use (never waits)
 
 void LoadCell_Poll(void) {
     long v;
@@ -277,8 +261,6 @@ const char *LoadCell_StatusText(LoadCellStatus s) {
         default:           return "OK";
     }
 }
-
-// ---------------------------------------------------------------- blocking conversions
 
 float LoadCell_RawToGrams(long raw) {
     return applyDeadband(countsToGrams(raw - hx711_offset));

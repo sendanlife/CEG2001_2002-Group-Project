@@ -6,7 +6,7 @@
 
 static void delayMs(unsigned int ms) {
     while (ms--) {
-        __delay_cycles(1000);   // ~1 ms at default ~1 MHz DCO
+        __delay_cycles(1000);   
     }
 }
 
@@ -16,7 +16,6 @@ static void buzzerTone(unsigned int durationMs) {
     delayMs(durationMs);
     P2OUT &= ~BUZZER_BIT;
 #else
-    // Software 2.5 kHz square wave (200 us HIGH + 200 us LOW = 400 us period)
     unsigned long periods = ((unsigned long)durationMs * 5UL) / 2UL;
     while (periods--) {
         P2OUT |= BUZZER_BIT;
@@ -31,7 +30,7 @@ void Status_Init(void) {
     P2SEL &= ~STATUS_ALL_MASK;
     P2IE  &= ~STATUS_ALL_MASK;
     P2DIR |= STATUS_ALL_MASK;
-    P2DS  |= BUZZER_BIT;        // Full drive strength (~15 mA) for louder piezo output
+    P2DS  |= BUZZER_BIT;       
     P2OUT &= ~STATUS_ALL_MASK;
 }
 
@@ -52,7 +51,6 @@ void Status_SetFail(void) {
 }
 
 void Status_BeepComplete(void) {
-    // Two crisp 150 ms beeps to signal dispense completion
     buzzerTone(150);
     delayMs(100);
     buzzerTone(150);
