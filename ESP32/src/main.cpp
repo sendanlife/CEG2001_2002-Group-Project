@@ -2,6 +2,9 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include "nfc.h"
+#include <MFRC522.h>
+
+extern MFRC522 rfid;   // the RC522 object is defined in nfc.cpp
 
 #define MSP430_RX_PIN 16   // ESP32 RX2  <- MSP430 P3.3 (TXD)
 #define MSP430_TX_PIN 17   // ESP32 TX2  -> MSP430 P3.4 (RXD)
@@ -9,7 +12,7 @@
 const char* ssid = "reishell";
 const char* password = "020503Tao";
 
-const String baseUrl                = "http://192.168.43.194:3000";
+const String baseUrl                = "http://192.168.43.52:3000";
 const String nfcEndpoint            = baseUrl + "/api/auth/verify-nfc";
 const String tempEndpoint           = baseUrl + "/api/temperature";
 const String dispenseStatusEndpoint = baseUrl + "/api/dispense-status";
@@ -23,8 +26,8 @@ bool assignNfcMode = false;
 
 String uartBuffer = "";
 
-int dose1 = 0;
-int dose2 = 0;
+int smallPill = 0;
+int bigPill = 0;
 
 void postTemperatureToFlask(float tempC) {
     if (WiFi.status() != WL_CONNECTED) {
@@ -223,10 +226,14 @@ int assignPillCountToPatient(const String& patientUUID) {
         String response = http.getString();
         Serial.println("Assigned Pill Count Response: " + response);
         pillCount = extractJsonInt(response, "assignedPillCount");
-        dose1 = extractJsonInt(response, "dose1");
-        dose2 = extractJsonInt(response, "dose2");
-        if (dose1 < 0) dose1 = 0;
-        if (dose2 < 0) dose2 = 0;
+        // the route may name the doses smallPill/bigPill or dose1/dose2: accept either
+        smallPill = extractJsonInt(response, "smallPill");
+        if (smallPill < 0) smallPill = extractJsonInt(response, "dose1");
+        bigPill = extractJsonInt(response, "bigPill");
+        if (bigPill < 0) bigPill = extractJsonInt(response, "dose2");
+        if (smallPill < 0) smallPill = 0;
+        if (bigPill < 0) bigPill = 0;
+        Serial.printf("DEBUG: doses -> motor 1 = %d, motor 2 = %d\n", smallPill, bigPill);
     } else {
         Serial.println("Failed to fetch assigned pill count. HTTP Code: " + String(httpCode));
     }
@@ -300,13 +307,22 @@ void handleNFC() {
         Serial.printf("DEBUG: Patient UUID: %s, Pill Count: %d\n", patientUUID.c_str(), pillCount);
 
         if (pillCount >= 1) {
-            sendDosesToMSP430(dose1, dose2);
+            if (smallPill == 0 && bigPill == 0) {
+                Serial.println("DEBUG: both doses are 0 -> check the dose keys in the response above");
+            }
+            sendDosesToMSP430(smallPill, bigPill);
         } else {
             Serial.println("DEBUG: No pills assigned (0) -> Nothing sent.");
         }
     } else {
         Serial.print("Server Denied. HTTP Code: ");
-        Serial.println(httpResponseCode);
+        Serial.print(httpResponseCode);
+        if (httpResponseCode <= 0) {
+            Serial.print(" (" + HTTPClient::errorToString(httpResponseCode) + ") -> cannot reach Flask");
+        } else if (httpResponseCode == 403) {
+            Serial.print(" -> this card is not registered to a patient yet");
+        }
+        Serial.println();
         Serial.println("Reason: " + response);
 
         if (httpResponseCode == 403) {
@@ -319,6 +335,41 @@ void handleNFC() {
     if (shouldAutofill) {
         assignNfc(scannedUID);
     }
+}
+
+// The RC522 answers 0x91 / 0x92 on its version register.
+// 0x00 or 0xFF means it is not answering (wiring, a 3.3 V dip, or the chip reset itself).
+bool readerAlive() {
+    byte v = rfid.PCD_ReadRegister(MFRC522::VersionReg);
+    return v != 0x00 && v != 0xFF;
+}
+
+void printReaderStatus() {
+    byte v = rfid.PCD_ReadRegister(MFRC522::VersionReg);
+    if (v == 0x00 || v == 0xFF) {
+        Serial.printf("NFC reader: NOT FOUND (version 0x%02X) -> check RC522 wiring and 3.3V\n", v);
+    } else {
+        Serial.printf("NFC reader: OK (version 0x%02X)\n", v);
+    }
+}
+
+void checkServer() {
+    HTTPClient http;
+    http.setTimeout(2000);
+    http.begin(baseUrl + "/health");
+    int code = http.GET();
+    if (code == 200) {
+        Serial.println("Server: reachable at " + baseUrl);
+    } else {
+        Serial.print("Server: NOT reachable at " + baseUrl + " -> ");
+        if (code > 0) {
+            Serial.println(code);
+        } else {
+            Serial.println(HTTPClient::errorToString(code));
+        }
+        Serial.println("        Is Flask running? Is that the PC's current IP? Same Wi-Fi?");
+    }
+    http.end();
 }
 
 void setup() {
@@ -336,9 +387,22 @@ void setup() {
 
     // Initialize MFRC522 after Wi-Fi startup current settles
     init_nfc();
+    printReaderStatus();
+    checkServer();
+    Serial.println("Ready. Tap a card.");
 }
 
 void loop() {
+    static unsigned long lastReaderCheck = 0;
+    if (millis() - lastReaderCheck >= 5000) {
+        lastReaderCheck = millis();
+        if (!readerAlive()) {
+            Serial.println("NFC reader stopped answering -> re-initialising it");
+            rfid.PCD_Init();
+            printReaderStatus();
+        }
+    }
+
     handleNFC();
     checkMSP430UART();
     delay(50);
