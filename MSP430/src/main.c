@@ -31,6 +31,7 @@
 #define SETTLE_DELAY_CYCLES   1000000UL   // ~1 s for the tray to stop moving before weighing
 #define POST_DISPENSE_SAMPLES 16     // load-cell readings averaged after a dispense
 #define BUTTON_BIT            BIT1   // P1.1 = S2 button on the LaunchPad (test without the ESP32)
+#define SEND_RAW_TEMP         1      // 1 = also send RAW:<adc> with each TEMP line (debug; set 0 once temperature is right)
 
 extern volatile unsigned char dispense1Flag;
 extern volatile unsigned char dispense2Flag;
@@ -44,8 +45,7 @@ extern volatile unsigned int rawADC;
 volatile float latestTemp = 0.0f;
 volatile float latestWeight = 0.0f;
 
-static void sendWeightReading(long rawAvg) {
-    float g = LoadCell_RawToGrams(rawAvg);
+static void sendWeightGrams(float g) {
     if (g < 0.0f) g = 0.0f;
     latestWeight = g;
 
@@ -113,12 +113,11 @@ static unsigned char dispensePills(unsigned char motor, unsigned char expected) 
     __delay_cycles(SETTLE_DELAY_CYCLES);
     LoadCell_ReadRaw();                          // throw away the first reading after the wait
 
-    long postSum = 0;
-    unsigned char i;
-    for (i = 0; i < POST_DISPENSE_SAMPLES; i++) {
-        postSum += LoadCell_ReadRaw();
+    float grams = LoadCell_GetGrams(POST_DISPENSE_SAMPLES);   // average + zero deadband
+    if (LoadCell_IsConnected()) {                // nothing is sent if the HX711 is not answering
+        sendWeightGrams(grams);
     }
-    sendWeightReading(postSum / POST_DISPENSE_SAMPLES);
+    LoadCell_ResetFilter();                      // the weight just changed: do not blend it with old values
 
     return (pills >= expected) ? 1 : 0;
 }
@@ -147,6 +146,7 @@ int main(void) {
     unsigned long adcSum = 0;
     long weightSum = 0;
     unsigned char weightCount = 0;
+    unsigned char haveWeight = 0;
 
     while (1) {
         // S2 button = same as a card tap with 1 pill per motor
@@ -206,18 +206,29 @@ int main(void) {
             } else {
                 LED_FAIL();
             }
+
+            weightSum = 0;                // start the next weight average fresh after a dispense
+            weightCount = 0;
+        }
+
+        // Weight: take a reading whenever the HX711 has one ready (about every 100 ms),
+        // average FILTER_READ_SAMPLES of them, then smooth over the last FILTER_SIZE averages.
+        // Nothing waits here, so temperature sampling and the UART are not held up.
+        if (LoadCell_IsReady()) {
+            weightSum += LoadCell_ReadRaw();
+            weightCount++;
+            if (weightCount >= FILTER_READ_SAMPLES) {
+                latestWeight = LoadCell_SmoothGrams(weightSum / (long)weightCount);
+                weightSum = 0;
+                weightCount = 0;
+                haveWeight = 1;
+            }
         }
 
         if (temp_ready_flag == 1) {
             adcSum += rawADC;
             temp_ready_flag = 0;
             sampleCount++;
-
-            // one weight sample every 2nd temperature sample (16 per report)
-            if ((sampleCount & 0x01) == 0 && LoadCell_IsReady()) {
-                weightSum += LoadCell_ReadRaw();
-                weightCount++;
-            }
 
             if (sampleCount >= 32) {
                 unsigned int avgADC = (unsigned int)(adcSum >> 5);
@@ -230,10 +241,13 @@ int main(void) {
                 sprintf(buf, "TEMP:%lu.%lu\n", temp_x10 / 10, temp_x10 % 10);
                 UART_SendString(buf);
 
-                if (weightCount > 0) {
-                    sendWeightReading(weightSum / (long)weightCount);
-                    weightSum = 0;
-                    weightCount = 0;
+#if SEND_RAW_TEMP
+                sprintf(buf, "RAW:%u\n", avgADC);           // raw ADC count: volts = RAW / 4095 * 3.3
+                UART_SendString(buf);
+#endif
+
+                if (haveWeight) {              // latest smoothed weight (no line if the HX711 is silent)
+                    sendWeightGrams(latestWeight);
                 }
             }
         }
