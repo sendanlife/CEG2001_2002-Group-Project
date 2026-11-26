@@ -30,6 +30,7 @@
 #define LOCKOUT_STEPS         25     // ~0.3 s ignore time after each pill (debounce)
 #define SETTLE_DELAY_CYCLES   1000000UL   // ~1 s for the tray to stop moving before weighing
 #define POST_DISPENSE_SAMPLES 16     // load-cell readings averaged after a dispense
+#define BUTTON_BIT            BIT1   // P1.1 = S2 button on the LaunchPad (test without the ESP32)
 
 extern volatile unsigned char dispense1Flag;
 extern volatile unsigned char dispense2Flag;
@@ -60,6 +61,10 @@ static unsigned char dispensePills(unsigned char motor, unsigned char expected) 
     unsigned char pills = 0;
     unsigned int sinceProgress = 0;
     unsigned char lockout = 0;
+
+    char run[16];
+    sprintf(run, "RUN:%u:%u\n", motor, expected);   // motor is about to start
+    UART_SendString(run);
 
     IRSensor_Arm(motor);
 
@@ -128,10 +133,15 @@ int main(void) {
     IRSensor_Init();
     stepper_init();             // last, so nothing overwrites the stepper pins
 
+    P1DIR &= ~BUTTON_BIT;       // S2 button: input with pull-up
+    P1REN |=  BUTTON_BIT;
+    P1OUT |=  BUTTON_BIT;
+
     __bis_SR_register(GIE);
 
     __delay_cycles(500000);     // let the HX711 and temperature sensor supply settle
     LoadCell_Tare(16);          // scale must be empty and still at power-up
+    UART_SendString("READY\n"); // ESP32 monitor shows: MSP430 says: READY
 
     unsigned char sampleCount = 0;
     unsigned long adcSum = 0;
@@ -139,6 +149,18 @@ int main(void) {
     unsigned char weightCount = 0;
 
     while (1) {
+        // S2 button = same as a card tap with 1 pill per motor
+        if (!(P1IN & BUTTON_BIT)) {
+            __delay_cycles(20000);                 // debounce
+            if (!(P1IN & BUTTON_BIT)) {
+                expected1 = 1;
+                expected2 = 1;
+                dispense1Flag = 1;
+                dispense2Flag = 1;
+                while (!(P1IN & BUTTON_BIT));      // wait for release
+            }
+        }
+
         if (dispense1Flag == 1) {
             dispense1Flag = 0;
             if (dispense1Count == 0) {
@@ -155,6 +177,11 @@ int main(void) {
 
         if (dispense1Count > 0 || dispense2Count > 0) {
             unsigned char allOk = 1;
+
+            char req[16];
+            sprintf(req, "REQ:%u:%u\n", expected1, expected2);   // request received
+            UART_SendString(req);
+
             LED_BUSY();
 
             // motor 1 runs first, then motor 2
