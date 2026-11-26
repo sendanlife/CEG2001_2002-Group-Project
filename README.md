@@ -6,18 +6,18 @@ The system identifies a patient using an MFRC522 NFC card, retrieves that patien
 
 ## Features
 
-- Staff signup and login using JWT bearer authentication
-- Patient registration and assignment to a staff account
-- Pill catalogue management
+- Staff signup and login using JWT bearer authentication (Rachelle)
+- Patient registration and assignment to a staff account (Rachelle)
+- Pill catalogue management (Hui Zhong)
 - Patient pill inventory and dose assignment (Gabriel)
-- NFC patient authentication
-- Live temperature reporting
+- NFC patient authentication (Syafiq)
+- Live temperature reporting (Syafiq)
 - Two-motor pill dispensing (Gabriel)
-- IR-based pill-drop detection
-- HX711 load-cell weight verification
-- Cup pickup and missed-pickup reporting
-- Real-time Socket.IO dashboard events
-- Dispensing quantity and dispense-history logging
+- IR-based pill-drop detection (Owen)
+- HX711 load-cell weight verification (Hui Zhong)
+- Cup pickup and missed-pickup reporting (Owen)
+- Real-time Socket.IO dashboard events (Syafiq)
+- Dispensing quantity and dispense-history logging (Rachelle)
 
 ## System Architecture
 
