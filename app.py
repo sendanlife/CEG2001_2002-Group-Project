@@ -10,6 +10,7 @@ from routes import (
     users_bp, pills_bp, schedule_bp,
     dashboard_bp, ingest_bp, auth_bp, staffauth_bp
 )
+from models import User, UserPill, DispenseLog
 
 socketio = SocketIO(cors_allowed_origins="*")
 
@@ -63,34 +64,64 @@ def create_app() -> Flask:
     @app.route("/api/dispense-status", methods=["POST"])
     def receive_dispense_status():
         data = request.get_json(silent=True) or {}
-        status = str(data.get("status", "")).upper()
-        is_ok = status == "OK"
+        motor    = int(data.get("motor", 0))
+        dropped  = int(data.get("dropped", 0))
+        expected = int(data.get("expected", 1))
+        uuid_in  = str(data.get("uuid", "")).strip()
 
-        user_name = current_app.config.get("LAST_DISPENSE_USER", "Unknown")
-        print(user_name)
+        if dropped <= 0:
+            status = "FAILED"
+        elif dropped < expected:
+            status = "UNSUCCESSFUL"
+        else:
+            status = "SUCCESS"
+        is_ok = status == "SUCCESS"
+
         nfc_id = current_app.config.get("LAST_DISPENSE_NFC", "UNKNOWN")
+        user = User.query.get(uuid_in) if uuid_in else None
+        if not user:
+            user = User.query.filter(User.NFCId.ilike(nfc_id)).first()
+        user_name = current_app.config.get("LAST_DISPENSE_USER", "Unknown")
         now = datetime.datetime.now()
 
+        print(f"DISPENSE: uuid={uuid_in} nfc={nfc_id} user={'found' if user else 'NOT FOUND'} "
+              f"motor={motor} dropped={dropped}/{expected} -> {status}")
+
+        # 1) stock + per-pill log first, in its own commit
         try:
-            new_log = DispenseHistory(
-                nfc_id=nfc_id,
-                status="SUCCESS" if is_ok else "FAILED",
-                timestamp=now,
-            )
-            db.session.add(new_log)
+            if user and motor in (1, 2) and dropped > 0:
+                ups = UserPill.query.filter_by(UUID=user.UUID).order_by(UserPill.pillsId).all()
+                if len(ups) >= motor:
+                    up = ups[motor - 1]
+                    before = up.quantity or 0
+                    up.quantity = max(0, before - dropped)
+                    db.session.add(DispenseLog(
+                        UUID=user.UUID, pillsId=up.pillsId,
+                        amountDispense=dropped, status=is_ok, timestamp=now,
+                    ))
+                    db.session.commit()
+                    print(f"DISPENSE: {up.pillsId} quantity {before} -> {up.quantity}")
+                else:
+                    print(f"DISPENSE: patient has no pill for motor {motor}")
+        except Exception as e:
+            db.session.rollback()
+            print(f"DispenseLog/quantity error: {e}")
+
+        # 2) history in a separate commit, so a failure here can't undo the stock
+        try:
+            db.session.add(DispenseHistory(nfc_id=nfc_id, status=status, timestamp=now))
             db.session.commit()
         except Exception as e:
             db.session.rollback()
-            print(f"MySQL Logging Error: {e}")
+            print(f"DispenseHistory error: {e}")
 
         event_payload = {
             "eventType": "PILL_DISPENSED" if is_ok else "DISPENSE_ERROR",
+            "status": status,
             "userId": user_name,
             "timestamp": now.isoformat(),
         }
-
         socketio.emit("new-event", event_payload)
-
         return jsonify({"success": True, "data": event_payload}), 200
 
     @app.route("/api/weight", methods=["POST"])

@@ -17,9 +17,13 @@ const String weightEndpoint = baseUrl + "/api/weight";
 const String pendingNfcEndpoint = baseUrl + "/api/auth/pending-nfc";
 const String assignPillCountEndpoint = baseUrl + "/api/pills/patient/{uuid}/count";
 String lastScannedUID = "";
+String currentPatientUUID = "";
 bool assignNfcMode = false;
 
 String uartBuffer = "";
+
+int dose1 = 0;
+int dose2 = 0;
 
 void postTemperatureToFlask(float tempC) {
     if (WiFi.status() != WL_CONNECTED) {
@@ -38,7 +42,7 @@ void postTemperatureToFlask(float tempC) {
     http.end();
 }
 
-void postDispenseStatusToFlask(const String& status) {
+void postDispenseStatusToFlask(int motor, int dropped, int expected) {
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("Error: Wi-Fi Disconnected (dispense status skipped)");
         return;
@@ -49,9 +53,12 @@ void postDispenseStatusToFlask(const String& status) {
     http.begin(dispenseStatusEndpoint);
     http.addHeader("Content-Type", "application/json");
 
-    String payload = "{\"status\":\"" + status + "\"}";
+    String payload = "{\"uuid\":\"" + currentPatientUUID + "\"" +
+                 ",\"motor\":" + String(motor) +
+                 ",\"dropped\":" + String(dropped) +
+                 ",\"expected\":" + String(expected) + "}";
     int httpCode = http.POST(payload);
-    Serial.printf("Dispense %s -> HTTP %d\n", status.c_str(), httpCode);
+    Serial.printf("Dispense motor %d: %d/%d -> HTTP %d\n", motor, dropped, expected, httpCode);
     http.end();
 }
 
@@ -81,8 +88,13 @@ void checkMSP430UART() {
                 float tempC = uartBuffer.substring(5).toFloat();
                 postTemperatureToFlask(tempC);
             } else if (uartBuffer.startsWith("DISPENSE:")) {
-                String status = uartBuffer.substring(9);
-                postDispenseStatusToFlask(status);
+                // DISPENSE:<motor>:<dropped>:<expected>
+                int a = uartBuffer.indexOf(':', 9);
+                int b = uartBuffer.indexOf(':', a + 1);
+                int motor    = uartBuffer.substring(9, a).toInt();
+                int dropped  = uartBuffer.substring(a + 1, b).toInt();
+                int expected = uartBuffer.substring(b + 1).toInt();
+                postDispenseStatusToFlask(motor, dropped, expected);
             } else if (uartBuffer.startsWith("WEIGHT:")) {
                 float weightG = uartBuffer.substring(7).toFloat();
                 postWeightToFlask(weightG);
@@ -189,6 +201,10 @@ int assignPillCountToPatient(const String& patientUUID) {
         String response = http.getString();
         Serial.println("Assigned Pill Count Response: " + response);
         pillCount = extractJsonInt(response, "assignedPillCount");
+        dose1 = extractJsonInt(response, "dose1");
+        dose2 = extractJsonInt(response, "dose2");
+        if (dose1 < 0) dose1 = 0;
+        if (dose2 < 0) dose2 = 0;
     } else {
         Serial.println("Failed to fetch assigned pill count. HTTP Code: " + String(httpCode));
     }
@@ -202,6 +218,17 @@ void sendToMSP430(char cmd) {
     Serial2.write((uint8_t)cmd);
     Serial2.flush();   // wait until the byte has physically left the pin
     Serial.printf("TX -> MSP430: '%c' (0x%02X)\n", cmd, (uint8_t)cmd);
+}
+
+// 'S' + dose for motor 1 + dose for motor 2, as ASCII digits
+void sendDosesToMSP430(int d1, int d2) {
+    if (d1 > 9) d1 = 9;
+    if (d2 > 9) d2 = 9;
+    Serial2.write('S');
+    Serial2.write((uint8_t)('0' + d1));
+    Serial2.write((uint8_t)('0' + d2));
+    Serial2.flush();
+    Serial.printf("TX -> MSP430: S%d%d\n", d1, d2);
 }
 
 void handleNFC() {
@@ -231,18 +258,13 @@ void handleNFC() {
 
             if (httpResponseCode == 200) {
                 String patientUUID = extractJsonString(response, "uuid");
+                currentPatientUUID = patientUUID;
                 int pillCount = assignPillCountToPatient(patientUUID);
 
                 Serial.printf("DEBUG: Patient UUID: %s, Pill Count: %d\n", patientUUID.c_str(), pillCount);
 
-                if (pillCount == 1) {
-                    // motor 1 only
-                    Serial.println("DEBUG: 1 pill assigned -> Sending '1' to MSP430.");
-                    sendToMSP430('1');
-                } else if (pillCount >= 2) {
-                    // motor 1 first, then motor 2
-                    Serial.printf("DEBUG: 2+ pills assigned -> Sending 'D' to MSP430. Pill Count: %d\n", pillCount);
-                    sendToMSP430('D');
+                if (pillCount >= 1) {
+                    sendDosesToMSP430(dose1, dose2);
                 } else {
                     Serial.println("DEBUG: No pills assigned (0) -> Nothing sent.");
                 }

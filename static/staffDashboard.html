@@ -654,7 +654,6 @@
                     : dispenserDetails.map(d => `
                         <tr>
                             <td>${d.pillName}</td>
-                            <td>${d.dispensed > 0 ? "Success" : "None"}</td>
                             <td>${d.remaining}</td>
                         </tr>`).join('');
 
@@ -676,7 +675,7 @@
 
                     <h3 style="font-size:14px; color:#2a5298; margin:15px 0 8px;">Dispenser Details</h3>
                     <table>
-                        <thead><tr><th>Pill</th><th>Dispensed</th><th>Remaining</th></tr></thead>
+                        <thead><tr><th>Pill</th><th>Remaining</th></tr></thead>
                         <tbody>${dispRows}</tbody>
                     </table>
                 `;

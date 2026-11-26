@@ -124,16 +124,20 @@ def add_user_pill(uuid):
 
 @pills_bp.route("/pills/patient/<uuid>/count", methods=["GET"])
 def get_assigned_pill_count(uuid):
-    """GET /api/pills/patient/<uuid>/count — count pills assigned to a patient UUID."""
+    """GET /api/pills/patient/<uuid>/count — pill count plus the dose per motor."""
     user = User.query.get(uuid)
     if not user:
         return error("Patient not found", 404)
 
-    pill_count = UserPill.query.filter_by(UUID=uuid).count()
-    current_app.config["COUNT_PILLS"] = pill_count
-    print(f"DEBUG: Patient UUID: {uuid}, Pill Count: {pill_count}")
+    # motor 1 = first pill by pillsId, motor 2 = second
+    ups = UserPill.query.filter_by(UUID=uuid).order_by(UserPill.pillsId).all()
+    dose1 = int(ups[0].pillsDose or 1) if len(ups) > 0 else 0
+    dose2 = int(ups[1].pillsDose or 1) if len(ups) > 1 else 0
+
+    current_app.config["COUNT_PILLS"] = len(ups)
+    print(f"DEBUG: Patient {uuid}: pills={len(ups)} dose1={dose1} dose2={dose2}")
     return success(
-        {"uuid": uuid, "assignedPillCount": pill_count},
+        {"uuid": uuid, "assignedPillCount": len(ups), "dose1": dose1, "dose2": dose2},
         "Pill count retrieved successfully.",
         200,
     )

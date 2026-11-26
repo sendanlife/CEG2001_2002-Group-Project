@@ -6,18 +6,16 @@
 #include "irSensor.h"
 #include "loadCell.h"
 
-// ---- how many pills each motor should drop per dispense ----
-#define EXPECTED_PILLS_1 1
-#define EXPECTED_PILLS_2 1
-
 // ---- tuning ----
-#define NO_PILL_TIMEOUT_STEPS 2500   // give up after ~30 s (12 ms/step) with no new pill
+#define NO_PILL_TIMEOUT_STEPS 2500   // give up after ~30 s with no new pill
 #define LOCKOUT_STEPS         25     // ~0.3 s ignore time after each pill (debounce)
 
 extern volatile unsigned char dispense1Flag;
 extern volatile unsigned char dispense2Flag;
 extern volatile unsigned char dispense1Count;
 extern volatile unsigned char dispense2Count;
+extern volatile unsigned char expected1;
+extern volatile unsigned char expected2;
 extern volatile unsigned char temp_ready_flag;
 extern volatile unsigned int rawADC;
 
@@ -39,7 +37,6 @@ static void dispensePills(unsigned char motor, unsigned char expected) {
 
     IRSensor_Arm(motor);
 
-    // spin until all expected pills have dropped, or nothing new drops for too long
     while (pills < expected && sinceProgress < NO_PILL_TIMEOUT_STEPS) {
         if (motor == 2) {
             stepper2Step();
@@ -51,12 +48,12 @@ static void dispensePills(unsigned char motor, unsigned char expected) {
         if (lockout > 0) {
             lockout--;
             if (lockout == 0) {
-                IRSensor_Arm(motor);          // lockout over: listen again
+                IRSensor_Arm(motor);
             }
         } else if (IRSensor_PillDetected(motor)) {
             pills++;
             sinceProgress = 0;
-            lockout = LOCKOUT_STEPS;          // ignore this pill's own bounce
+            lockout = LOCKOUT_STEPS;
         }
     }
 
@@ -76,17 +73,10 @@ static void dispensePills(unsigned char motor, unsigned char expected) {
 
     IRSensor_Disarm(motor);
 
-    char info[24];
-    sprintf(info, "PILLS:%u/%u\n", pills, expected);
+    // DISPENSE:<motor>:<dropped>:<expected>  (Flask decides success/unsuccessful/failed)
+    char info[32];
+    sprintf(info, "DISPENSE:%u:%u:%u\n", motor, pills, expected);
     UART_SendString(info);
-
-    if (pills == 0) {
-        UART_SendString("DISPENSE:FAIL\n");            // nothing dropped
-    } else if (pills < expected) {
-        UART_SendString("DISPENSE:UNSUCCESSFUL\n");    // not the full amount
-    } else {
-        UART_SendString("DISPENSE:SUCCESS\n");         // everything dropped
-    }
 
     long postSum = 0;
     unsigned char i;
@@ -132,13 +122,13 @@ int main(void) {
         // motor 1 runs first, then motor 2
         while (dispense1Count > 0) {
             dispense1Count--;
-            dispensePills(1, EXPECTED_PILLS_1);
+            dispensePills(1, expected1);
             __delay_cycles(1000000);       // ~1 s pause before the next motor
         }
 
         while (dispense2Count > 0) {
             dispense2Count--;
-            dispensePills(2, EXPECTED_PILLS_2);
+            dispensePills(2, expected2);
         }
 
         if (temp_ready_flag == 1) {
