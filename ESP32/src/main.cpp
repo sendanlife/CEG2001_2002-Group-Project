@@ -373,6 +373,7 @@ void checkServer() {
 }
 
 void setup() {
+    setCpuFrequencyMhz(80);   // low power: 80 MHz is plenty (default is 240 MHz); Wi-Fi needs at least 80
     Serial.begin(115200);
     Serial2.begin(9600, SERIAL_8N1, MSP430_RX_PIN, MSP430_TX_PIN);
 
@@ -384,6 +385,7 @@ void setup() {
     }
     Serial.println("\nConnected to Wi-Fi! IP Address: ");
     Serial.println(WiFi.localIP());
+    WiFi.setSleep(true);      // low power: the Wi-Fi radio sleeps between beacons (modem sleep)
 
     // Initialize MFRC522 after Wi-Fi startup current settles
     init_nfc();
