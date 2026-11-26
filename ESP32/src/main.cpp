@@ -141,14 +141,12 @@ void checkMSP430UART() {
                     int dropped  = uartBuffer.substring(a + 1, b).toInt();
                     int expected = uartBuffer.substring(b + 1).toInt();
                     postDispenseStatusToFlask(motor, dropped, expected);
-                } else {
-                    Serial.println("MSP430 says: " + uartBuffer); 
-                }
+                } 
             } else if (uartBuffer.startsWith("WEIGHT:")) {
                 float weightG = uartBuffer.substring(7).toFloat();
                 postWeightToFlask("SMALL", weightG);
             } else if (uartBuffer.length() > 0) {
-                Serial.println("MSP430 says: " + uartBuffer);
+                
             }
             uartBuffer = "";
         } else if (c != '\r') {
@@ -242,7 +240,6 @@ int assignPillCountToPatient(const String& patientUUID) {
 void sendToMSP430(char cmd) {
     Serial2.write((uint8_t)cmd);
     Serial2.flush();  
-    Serial.printf("TX -> MSP430: '%c' (0x%02X)\n", cmd, (uint8_t)cmd);
 }
 
 void sendDosesToMSP430(int d1, int d2) {
@@ -252,7 +249,6 @@ void sendDosesToMSP430(int d1, int d2) {
     Serial2.write((uint8_t)('0' + d1));
     Serial2.write((uint8_t)('0' + d2));
     Serial2.flush();
-    Serial.printf("TX -> MSP430: S%d%d\n", d1, d2);
 }
 
 void handleNFC() {
@@ -366,7 +362,6 @@ void checkServer() {
 }
 
 void setup() {
-    setCpuFrequencyMhz(80);  
     Serial.begin(115200);
     Serial2.begin(9600, SERIAL_8N1, MSP430_RX_PIN, MSP430_TX_PIN);
 
@@ -378,8 +373,9 @@ void setup() {
     }
     Serial.println("\nConnected to Wi-Fi! IP Address: ");
     Serial.println(WiFi.localIP());
-    WiFi.setSleep(true);    
-    
+
+    // Initialize MFRC522 after Wi-Fi startup current settles
+    init_nfc();
     printReaderStatus();
     checkServer();
     Serial.println("Ready. Tap a card.");

@@ -12,7 +12,7 @@
 #define HX711_SCK_OUT   P3OUT
 #define HX711_SCK_SEL   P3SEL
 #define HX711_SCK_BIT   BIT5     
-#define HX711_SCALE_FACTOR   10.80f
+#define HX711_SCALE_FACTOR   1096.50f
 
 #define ZERO_DEADBAND_G      0.2f   
 #define FILTER_READ_SAMPLES  5      
