@@ -6,8 +6,11 @@
 #include <stdint.h>
 
 void stepper_init(void);
-void stepper_rotate(int steps);
-void stepper2_rotate(int steps);
-void steppers_rotate_together(int steps);
+void stepper1Step(void);
+void stepper2Step(void);
+void stepper1Release(void);
+void stepper2Release(void);
+void stepper1Rotate(int steps);
+void stepper2Rotate(int steps);
 
 #endif

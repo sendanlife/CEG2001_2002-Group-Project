@@ -1,80 +1,67 @@
 
 #include "stepper.h"
 
-// Motor 1: P1.2, P1.3, P1.4, P1.5
-// Motor 2: P6.1, P6.2, P6.3, P6.4
+#define STEP_DELAY_CYCLES 12000   // ~12 ms per step at 1 MHz (~80 steps/s)
 
-const uint8_t step_sequence[4] = {
+#define STEPPER1_MASK (BIT2 | BIT3 | BIT4 | BIT5)   // P1.2 - P1.5
+#define STEPPER2_MASK (BIT1 | BIT2 | BIT3 | BIT4)   // P6.1 - P6.4
+
+const uint8_t step_sequence_1[4] = {
     BIT2 | BIT3,
     BIT3 | BIT4,
     BIT4 | BIT5,
     BIT5 | BIT2
 };
 
-static int position1 = 0;
-static int position2 = 0;
+const uint8_t step_sequence_2[4] = {
+    BIT1 | BIT2,
+    BIT2 | BIT3,
+    BIT3 | BIT4,
+    BIT4 | BIT1
+};
 
-void stepper_init(void)
-{
-    // Configure Motor 1 pins
-    P1DIR |= BIT2 | BIT3 | BIT4 | BIT5;
-    P1SEL &= ~(BIT2 | BIT3 | BIT4 | BIT5);
-    P1OUT &= ~(BIT2 | BIT3 | BIT4 | BIT5);
+static uint8_t phase1 = 0;
+static uint8_t phase2 = 0;
 
-    // Configure Motor 2 pins
-    P6DIR |= BIT1 | BIT2 | BIT3 | BIT4;
-    P6SEL &= ~(BIT1 | BIT2 | BIT3 | BIT4);
-    P6OUT &= ~(BIT1 | BIT2 | BIT3 | BIT4);
+void stepper_init(void) {
+    P1SEL &= ~STEPPER1_MASK;
+    P1DIR |=  STEPPER1_MASK;
+    P1OUT &= ~STEPPER1_MASK;
+
+    P6SEL &= ~STEPPER2_MASK;
+    P6DIR |=  STEPPER2_MASK;
+    P6OUT &= ~STEPPER2_MASK;
 }
 
-void steppers_rotate_together(int steps)
-{
+// One step, coils stay energised, phase is remembered between calls
+void stepper1Step(void) {
+    P1OUT = (P1OUT & ~STEPPER1_MASK) | step_sequence_1[phase1];
+    phase1 = (phase1 + 1) & 0x03;
+    __delay_cycles(STEP_DELAY_CYCLES);
+}
+
+void stepper2Step(void) {
+    P6OUT = (P6OUT & ~STEPPER2_MASK) | step_sequence_2[phase2];
+    phase2 = (phase2 + 1) & 0x03;
+    __delay_cycles(STEP_DELAY_CYCLES);
+}
+
+void stepper1Release(void) { P1OUT &= ~STEPPER1_MASK; }
+void stepper2Release(void) { P6OUT &= ~STEPPER2_MASK; }
+
+// Fixed number of steps (handy for testing)
+void stepper1Rotate(int steps) {
     int i;
-    int direction = (steps >= 0) ? 1 : -1;
-    int total_steps = (steps >= 0) ? steps : -steps;
-
-    for (i = 0; i < total_steps; i++)
-    {
-        // Turn off both motors
-        P1OUT &= ~(BIT2 | BIT3 | BIT4 | BIT5);
-        P6OUT &= ~(BIT1 | BIT2 | BIT3 | BIT4);
-
-        // Motor 1: P1.2 - P1.5
-        P1OUT |= step_sequence[position1];
-
-        // Motor 2: P6.1 - P6.4
-        P6OUT |= (step_sequence[position2] >> 1);
-
-        // Update Motor 1 position
-        position1 += direction;
-
-        if (position1 >= 4)
-            position1 = 0;
-        if (position1 < 0)
-            position1 = 3;
-
-        // Update Motor 2 position
-        position2 += direction;
-
-        if (position2 >= 4)
-            position2 = 0;
-        if (position2 < 0)
-            position2 = 3;
-
-        // Motor speed
-        __delay_cycles(4000);
+    for (i = 0; i < steps; i++) {
+        stepper1Step();
     }
-
-    // Turn off both motors
-    P1OUT &= ~(BIT2 | BIT3 | BIT4 | BIT5);
-    P6OUT &= ~(BIT1 | BIT2 | BIT3 | BIT4);
+    stepper1Release();
 }
 
-// Individual motor functions reserved for later
-void stepper_rotate(int steps)
-{
-}
-
-void stepper2_rotate(int steps)
-{
+void stepper2Rotate(int steps) {
+    int i;
+    for (i = 0; i < steps; i++) {
+        stepper2Step();
+    }
+    stepper2Release();
 }

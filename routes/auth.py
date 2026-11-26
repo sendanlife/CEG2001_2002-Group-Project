@@ -54,7 +54,9 @@ def verify_nfc():
 
     scanned_uid = data["uid"].strip().upper()
     print(f"ESP32 scanned hardware card: {scanned_uid}")
+    current_app.config["LAST_DISPENSE_NFC"] = scanned_uid
     user = User.query.filter(User.NFCId.ilike(scanned_uid)).first()
+    current_app.config["LAST_DISPENSE_USER"] = user.NAME if user else "Unknown"
 
     if not user:
         return error("Unauthorized card tap. NFC ID not found in database.", 403)

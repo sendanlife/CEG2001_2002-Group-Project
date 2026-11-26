@@ -1,7 +1,8 @@
 """Pill catalogue routes."""
-from flask import Blueprint, request
+from flask import Blueprint, request, current_app
 from database import db
-from models import Pill
+from models import Pill, User
+from models.userPill import UserPill
 from utils import success, error, require_fields
 
 pills_bp = Blueprint("pills", __name__)
@@ -120,3 +121,23 @@ def add_user_pill(uuid):
     db.session.add(item)
     db.session.commit()
     return success(item.to_dict(), "Pill assigned to user", 201)
+
+@pills_bp.route("/pills/patient/<uuid>/count", methods=["GET"])
+def get_assigned_pill_count(uuid):
+    """GET /api/pills/patient/<uuid>/count — pill count plus the dose per motor."""
+    user = User.query.get(uuid)
+    if not user:
+        return error("Patient not found", 404)
+
+    # motor 1 = first pill by pillsId, motor 2 = second
+    ups = UserPill.query.filter_by(UUID=uuid).order_by(UserPill.pillsId).all()
+    dose1 = int(ups[0].pillsDose or 1) if len(ups) > 0 else 0
+    dose2 = int(ups[1].pillsDose or 1) if len(ups) > 1 else 0
+
+    current_app.config["COUNT_PILLS"] = len(ups)
+    print(f"DEBUG: Patient {uuid}: pills={len(ups)} dose1={dose1} dose2={dose2}")
+    return success(
+        {"uuid": uuid, "assignedPillCount": len(ups), "dose1": dose1, "dose2": dose2},
+        "Pill count retrieved successfully.",
+        200,
+    )

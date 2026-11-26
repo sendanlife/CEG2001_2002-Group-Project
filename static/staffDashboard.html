@@ -165,9 +165,6 @@
         <button class="action-btn primary" onclick="openModal('modal-add-patient')">➕ Add Patient</button>
         <button class="action-btn primary" onclick="openModal('modal-add-pill')">💊 Add Pill</button>
         <button class="action-btn" onclick="openModal('modal-assign-pill')">📋 Assign Pill</button>
-        <button class="action-btn" onclick="openModal('modal-add-schedule')">📅 Add Schedule</button>
-        <button class="action-btn" onclick="openModal('modal-assign-nfc')">🏷️ Assign NFC</button>
-        <button class="action-btn" onclick="refreshDashboard()">🔄 Refresh</button>
     </div>
 
     <div class="stats">
@@ -196,13 +193,12 @@
                     <th>Phone</th>
                     <th>NRIC</th>
                     <th>NFC ID</th>
-                    <th>🌡️ Temp (°C)</th>
-                    <th>💊 Pill Status</th>
+                    <th>Pill Status</th>
                     <th>Actions</th>
                 </tr>
             </thead>
             <tbody id="patients-list">
-                <tr><td colspan="9" style="text-align:center; color:#888;">Loading...</td></tr>
+                <tr><td colspan="8" style="text-align:center; color:#888;">Loading...</td></tr>
             </tbody>
         </table>
     </div>
@@ -289,60 +285,15 @@
         </div>
     </div>
 
-    <!-- ADD SCHEDULE -->
-    <div class="modal" id="modal-add-schedule">
-        <div class="modal-content">
-            <h2>📅 Create Schedule for Patient</h2>
-            <div class="error-box" id="err-add-schedule"></div>
-            <label>Patient</label>
-            <select id="sched-patient"></select>
-            <label>Pill</label>
-            <select id="sched-pill"></select>
-            <label>Time (HH:MM)</label>
-            <input type="time" id="sched-timing" value="08:00">
-            <label>Dispense Amount</label>
-            <input type="number" id="sched-amount" value="1">
-            <label>Repeat Days (comma-separated, leave empty for daily)</label>
-            <input type="text" id="sched-days" placeholder="MON,WED,FRI">
-            <div class="modal-actions">
-                <button class="btn-secondary" onclick="closeModal('modal-add-schedule')">Cancel</button>
-                <button class="btn-primary" onclick="addSchedule()">Create Schedule</button>
-            </div>
-        </div>
-    </div>
-
     <!-- VIEW PATIENT -->
     <div class="modal" id="modal-view-patient">
         <div class="modal-content">
-            <h2>👁️ Patient Details</h2>
+            <h2>Patient Details</h2>
             <label>Patient</label>
             <select id="view-patient" onchange="loadPatientDetails()"></select>
             <div id="patient-details" style="margin-top: 20px;"></div>
             <div class="modal-actions">
                 <button class="btn-secondary" onclick="closeModal('modal-view-patient')">Close</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- EDIT SCHEDULE MODAL -->
-    <div class="modal" id="modal-edit-schedule">
-        <div class="modal-content">
-            <h2>✏️ Edit Schedule</h2>
-            <div class="error-box" id="err-edit-schedule"></div>
-            <input type="hidden" id="edit-sched-id">
-            <label>Pill</label>
-            <select id="edit-sched-pill"></select>
-            <label>Pills per Dose</label>
-            <input type="number" id="edit-sched-dose" value="1" min="1">
-            <label>Time (HH:MM)</label>
-            <input type="time" id="edit-sched-timing">
-            <label>Dispense Amount</label>
-            <input type="number" id="edit-sched-amount" value="1" min="1">
-            <label>Repeat Days (comma-separated, leave empty for daily)</label>
-            <input type="text" id="edit-sched-days" placeholder="Leave empty for Daily">
-            <div class="modal-actions">
-                <button class="btn-secondary" onclick="closeModal('modal-edit-schedule')">Cancel</button>
-                <button class="btn-primary" onclick="saveScheduleEdit()">Save Changes</button>
             </div>
         </div>
     </div>
@@ -376,7 +327,7 @@
 
         async function openModal(id) {
             document.getElementById(id).classList.add('show');
-            if (['modal-assign-pill', 'modal-add-schedule', 'modal-view-patient', 'modal-assign-nfc'].includes(id)) {
+            if (['modal-assign-pill', 'modal-view-patient', 'modal-assign-nfc'].includes(id)) {
                 await populateDropdowns();
             }
         }
@@ -468,7 +419,7 @@
             const list = document.getElementById('patients-list');
             list.innerHTML = '';
             if (data.patients.length === 0) {
-                list.innerHTML = '<tr><td colspan="9" style="text-align:center; color:#888;">No patients assigned yet.</td></tr>';
+                list.innerHTML = '<tr><td colspan="8" style="text-align:center; color:#888;">No patients assigned yet.</td></tr>';
                 return;
             }
 
@@ -482,9 +433,6 @@
                         <td>${p.phoneNumber || '-'}</td>
                         <td>${nricDisplay}</td>
                         <td>${p.NFCId || '-'}</td>
-                        <td class="temp-cell" id="temp-${p.UUID}">
-                            <span class="badge badge-loading">Loading…</span>
-                        </td>
                         <td id="pills-${p.UUID}">
                             <span class="badge badge-loading">Loading…</span>
                         </td>
@@ -504,9 +452,8 @@
         }
 
         async function loadPatientStatus(uuid) {
-            const tempCell = document.getElementById(`temp-${uuid}`);
             const pillsCell = document.getElementById(`pills-${uuid}`);
-            if (!tempCell || !pillsCell) return;
+            if (!pillsCell) return;
 
             try {
                 const res = await apiFetch(`${API_URL}/staff/patients/${uuid}`);
@@ -514,18 +461,7 @@
                 if (!result.success) throw new Error(result.message || 'Failed to load');
 
                 const data = result.data;
-                const rawTemp = data.temperature ?? data.patient?.temperature ?? data.dispenserDetails?.[0]?.temperature ?? null;
-
-                if (rawTemp === null || rawTemp === undefined || isNaN(Number(rawTemp))) {
-                    tempCell.innerHTML = '<span class="badge badge-na">N/A</span>';
-                } else {
-                    const temp = Number(rawTemp);
-                    let cls = 'temp-ok';
-                    if (temp >= 30) cls = 'temp-danger';
-                    else if (temp >= 25) cls = 'temp-warn';
-                    tempCell.innerHTML = `<span class="${cls}">${temp.toFixed(1)}°C</span>`;
-                }
-
+                
                 const LOW_THRESHOLD = 5;
                 const inventory = data.inventory || [];
 
@@ -547,14 +483,8 @@
                 }
             } catch (err) {
                 console.error('Status load failed for', uuid, err);
-                tempCell.innerHTML = '<span class="badge badge-na">Error</span>';
                 pillsCell.innerHTML = '<span class="badge badge-na">Error</span>';
             }
-        }
-
-        function refreshDashboard() {
-            loadDashboard();
-            toast('success', 'Dashboard refreshed');
         }
 
         async function populateDropdowns() {
@@ -567,14 +497,12 @@
             ).join('');
 
             document.getElementById('assign-pill').innerHTML = pillOptions;
-            document.getElementById('sched-pill').innerHTML = pillOptions;
 
             const patientOptions = patientsCache.map(p =>
                 `<option value="${p.UUID}">${p.NAME} (${p.UUID})</option>`
             ).join('');
 
             document.getElementById('assign-patient').innerHTML = patientOptions;
-            document.getElementById('sched-patient').innerHTML = patientOptions;
             document.getElementById('view-patient').innerHTML = patientOptions;
             document.getElementById('assign-nfc-patient').innerHTML = patientOptions;
         }
@@ -678,30 +606,6 @@
             loadPatientStatus(uuid);
         }
 
-        async function addSchedule() {
-            clearErrors();
-            const uuid = document.getElementById('sched-patient').value;
-            const payload = {
-                pillsId: document.getElementById('sched-pill').value,
-                timing: document.getElementById('sched-timing').value,
-                dispenseAmount: parseInt(document.getElementById('sched-amount').value) || 1,
-                onRepeat: document.getElementById('sched-days').value.trim() || null,
-                isRepeat: true,
-            };
-
-            const res = await apiFetch(`${API_URL}/staff/patients/${uuid}/schedules`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-            });
-            const result = await res.json();
-
-            if (!result.success) return showErr('err-add-schedule', result.message);
-
-            toast('success', 'Schedule created');
-            closeModal('modal-add-schedule');
-        }
-
         async function viewPatient(uuid) {
             await openModal('modal-view-patient');
             document.getElementById('view-patient').value = uuid;
@@ -726,7 +630,6 @@
 
                 const data = result.data;
                 const inventory = data.inventory || [];
-                const schedules = data.schedules || [];
                 const dispenserDetails = data.dispenserDetails || [];
 
                 const rawTemp = data.temperature ?? data.patient?.temperature ?? dispenserDetails?.[0]?.temperature ?? null;
@@ -746,50 +649,11 @@
                         </tr>`;
                     }).join('');
 
-                const schedRows = schedules.length === 0
-                    ? '<tr><td colspan="6" style="color:#888;">No schedules</td></tr>'
-                    : schedules.map(s => {
-                        const timeDisplay = s.timing ? s.timing.substring(0, 5) : '-';
-                        const daysDisplay = s.onRepeat ? s.onRepeat.replace(/,/g, ', ') : 'Daily';
-                        const statusBadge = s.isActive
-                            ? '<span class="badge badge-ok">Active</span>'
-                            : '<span class="badge badge-empty">Disabled</span>';
-                        const toggleBtnText = s.isActive ? 'Disable' : 'Enable';
-                        const toggleStyle = s.isActive
-                            ? 'background:#fff4e0; color:#b9770e; border:1px solid #b9770e;'
-                            : 'background:#e6f9ee; color:#1e8449; border:1px solid #1e8449;';
-
-                        window.schedulesCache = window.schedulesCache || {};
-                        window.schedulesCache[s.scheduleId] = s;
-
-                        return `
-                        <tr>
-                            <td>${statusBadge}</td>
-                            <td>${timeDisplay}</td>
-                            <td>${s.pillName}</td>
-                            <td>${s.dispenseAmount}</td>
-                            <td>${daysDisplay}</td>
-                            <td>
-                                <div style="display: flex; flex-direction: column; gap: 6px;">
-                                    <button onclick="toggleSchedule('${s.scheduleId}', ${s.isActive}, '${uuid}')"
-                                        style="padding:4px 8px; border-radius:4px; cursor:pointer; font-size:12px; font-weight:600; ${toggleStyle}">
-                                        ${toggleBtnText}
-                                    </button>
-                                    <button onclick="openEditScheduleModal('${s.scheduleId}')"
-                                        style="padding:4px 8px; border-radius:4px; cursor:pointer; font-size:12px; font-weight:600; background:#eef3ff; color:#2a5298; border:1px solid #2a5298;">
-                                        Edit
-                                    </button>
-                                </div>
-                            </td>
-                        </tr>`;
-                    }).join('');
-
                 const dispRows = dispenserDetails.length === 0
                     ? '<tr><td colspan="3" style="color:#888;">No dispenser data</td></tr>'
                     : dispenserDetails.map(d => `
                         <tr>
                             <td>${d.pillName}</td>
-                            <td>${d.dispensed > 0 ? "Success" : "None"}</td>
                             <td>${d.remaining}</td>
                         </tr>`).join('');
 
@@ -809,95 +673,15 @@
                         <tbody>${invRows}</tbody>
                     </table>
 
-                    <h3 style="font-size:14px; color:#2a5298; margin: 15px 0 8px;">Schedules</h3>
-                    <table>
-                        <thead><tr><th>Status</th><th>Time</th><th>Pill</th><th>Amount</th><th>Days</th><th>Actions</th></tr></thead>
-                        <tbody>${schedRows}</tbody>
-                    </table>
-
                     <h3 style="font-size:14px; color:#2a5298; margin:15px 0 8px;">Dispenser Details</h3>
                     <table>
-                        <thead><tr><th>Pill</th><th>Dispensed</th><th>Remaining</th></tr></thead>
+                        <thead><tr><th>Pill</th><th>Remaining</th></tr></thead>
                         <tbody>${dispRows}</tbody>
                     </table>
                 `;
             } catch (err) {
                 console.error(err);
                 detailBox.innerHTML = `<div style="color:#c0392b; padding:15px; background:#ffe6e6; border-radius:8px;">Failed to load details.</div>`;
-            }
-        }
-
-        async function toggleSchedule(scheduleId, currentStatus, uuid) {
-            try {
-                const res = await apiFetch(`${API_URL}/staff/schedules/${scheduleId}/toggle`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                });
-                const result = await res.json();
-
-                if (!result.success) {
-                    toast('error', result.message || 'Failed to toggle schedule');
-                    return;
-                }
-
-                toast('success', `Schedule ${currentStatus ? 'Disabled' : 'Enabled'}`);
-                loadPatientDetails();
-                loadPatientStatus(uuid);
-            } catch (err) {
-                console.error(err);
-                toast('error', 'Network error while toggling schedule');
-            }
-        }
-
-        async function openEditScheduleModal(scheduleId) {
-            const s = window.schedulesCache[scheduleId];
-            if (!s) return;
-
-            const pillOptions = pillsCache.map(p =>
-                `<option value="${p.pillsId}" ${p.pillsId === s.pillsId ? 'selected' : ''}>${p.pillName} (${p.pillsId})</option>`
-            ).join('');
-            document.getElementById('edit-sched-pill').innerHTML = pillOptions;
-
-            document.getElementById('edit-sched-id').value = s.scheduleId;
-            document.getElementById('edit-sched-dose').value = s.pillsDose || 1;
-            document.getElementById('edit-sched-timing').value = s.timing ? s.timing.substring(0, 5) : '08:00';
-            document.getElementById('edit-sched-amount').value = s.dispenseAmount || 1;
-            document.getElementById('edit-sched-days').value = s.onRepeat || '';
-
-            await openModal('modal-edit-schedule');
-        }
-
-        async function saveScheduleEdit() {
-            clearErrors();
-            const scheduleId = document.getElementById('edit-sched-id').value;
-            const payload = {
-                pillsId: document.getElementById('edit-sched-pill').value,
-                pillsDose: parseInt(document.getElementById('edit-sched-dose').value) || 1,
-                timing: document.getElementById('edit-sched-timing').value,
-                dispenseAmount: parseInt(document.getElementById('edit-sched-amount').value) || 1,
-                onRepeat: document.getElementById('edit-sched-days').value.trim() || null,
-                isRepeat: true
-            };
-
-            try {
-                const res = await apiFetch(`${API_URL}/staff/schedules/${scheduleId}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload),
-                });
-                const result = await res.json();
-
-                if (!result.success) {
-                    showErr('err-edit-schedule', result.message || 'Failed to update schedule');
-                    return;
-                }
-
-                toast('success', 'Schedule updated successfully');
-                closeModal('modal-edit-schedule');
-                loadPatientDetails();
-            } catch (err) {
-                console.error(err);
-                showErr('err-edit-schedule', 'Network error');
             }
         }
 
