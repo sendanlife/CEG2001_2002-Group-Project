@@ -9,7 +9,7 @@
 const char* ssid = "reishell";
 const char* password = "020503Tao";
 
-const String baseUrl                = "http://10.96.234.203:3000";
+const String baseUrl                = "http://192.168.43.194:3000";
 const String nfcEndpoint            = baseUrl + "/api/auth/verify-nfc";
 const String tempEndpoint           = baseUrl + "/api/temperature";
 const String dispenseStatusEndpoint = baseUrl + "/api/dispense-status";
