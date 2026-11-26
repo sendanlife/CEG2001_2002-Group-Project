@@ -2,36 +2,95 @@
 #include "loadCell.h"
 
 // ~0.3 s of polling: well over one conversion period (10 SPS = 100 ms)
-#define READ_TIMEOUT      25000UL
-// after a timeout the HX711 is treated as missing; then only a very short look, so a
-// disconnected HX711 no longer stalls the program for seconds on every reading
-#define MISSING_TIMEOUT     500UL
+#define READ_TIMEOUT       25000UL
+#define SATURATION_LEVEL   8388000L     // the HX711 clips at +8388607 / -8388608
+#define SAME_READINGS      3            // this many identical bad readings in a row = a real fault
 
-static long hx711_offset = 0;            // tare value, in raw counts
-static long hx711_last = 0;              // last good raw reading
-static unsigned char hx711_missing = 0;
+// ---- state ----
+static long hx711_offset = 0;           // tare value, in raw counts
+static long hx711_last = 0;             // last good raw reading
+static unsigned char hx711_missing = 0; // a blocking read timed out
 
-static float filterBuf[FILTER_SIZE];
+static unsigned char ticksSinceRead = 0;
+static unsigned char zeroRun = 0;       // consecutive readings that were exactly 0
+static unsigned char satRun = 0;        // consecutive readings at the ADC limit
+
+static long avgSum = 0;                 // readings being averaged right now
+static unsigned char avgCount = 0;
+
+static long filterBuf[FILTER_SIZE];     // integer moving average: exact, no float drift
 static unsigned char filterIdx = 0;
 static unsigned char filterCount = 0;
-static float filterSum = 0.0f;
+static long filterSum = 0;
+
+// ---------------------------------------------------------------- helpers
 
 void LoadCell_ResetFilter(void) {
     unsigned char i;
+    avgSum = 0;
+    avgCount = 0;
     filterIdx = 0;
     filterCount = 0;
-    filterSum = 0.0f;
+    filterSum = 0;
     for (i = 0; i < FILTER_SIZE; i++) {
-        filterBuf[i] = 0.0f;
+        filterBuf[i] = 0;
     }
 }
+
+static void pushAverage(long avg) {
+    if (filterCount == FILTER_SIZE) {
+        filterSum -= filterBuf[filterIdx];
+    } else {
+        filterCount++;
+    }
+    filterBuf[filterIdx] = avg;
+    filterSum += avg;
+    if (++filterIdx >= FILTER_SIZE) {
+        filterIdx = 0;
+    }
+}
+
+static long filteredRaw(void) {
+    return filterCount ? (filterSum / (long)filterCount) : hx711_last;
+}
+
+static void noteReading(long v) {
+    hx711_last = v;
+    hx711_missing = 0;
+    ticksSinceRead = 0;
+
+    if (v == 0) {
+        if (zeroRun < 255) zeroRun++;
+    } else {
+        zeroRun = 0;
+    }
+
+    if (v >= SATURATION_LEVEL || v <= -SATURATION_LEVEL) {
+        if (satRun < 255) satRun++;
+    } else {
+        satRun = 0;
+    }
+}
+
+static float countsToGrams(long counts) {
+    return (float)counts / HX711_SCALE_FACTOR;
+}
+
+static float applyDeadband(float g) {
+    if (g > -ZERO_DEADBAND_G && g < ZERO_DEADBAND_G) {
+        return 0.0f;
+    }
+    return g;
+}
+
+// ---------------------------------------------------------------- setup
 
 void LoadCell_Init(void) {
     HX711_DOUT_SEL &= ~HX711_DOUT_BIT;
     HX711_SCK_SEL &= ~HX711_SCK_BIT;
 
     HX711_DOUT_DIR &= ~HX711_DOUT_BIT;
-    HX711_DOUT_REN |= HX711_DOUT_BIT;
+    HX711_DOUT_REN |= HX711_DOUT_BIT;      // pull-up: an unplugged DOUT reads "not ready", never a fake reading
     HX711_DOUT_OUT |= HX711_DOUT_BIT;
 
     HX711_SCK_DIR |= HX711_SCK_BIT;
@@ -43,6 +102,9 @@ void LoadCell_Init(void) {
     __delay_cycles(500000);
 
     hx711_missing = 0;
+    ticksSinceRead = 0;
+    zeroRun = 0;
+    satRun = 0;
     LoadCell_ResetFilter();
 }
 
@@ -54,9 +116,11 @@ unsigned char LoadCell_IsConnected(void) {
     return !hx711_missing;
 }
 
-// One reading. Returns 1 and stores it in *out, or 0 if the HX711 did not answer in time.
+// ---------------------------------------------------------------- one reading
+
+// Returns 1 and stores the value in *out, or 0 if the HX711 did not answer in time.
 static unsigned char readRawOnce(long *out) {
-    unsigned long timeout = hx711_missing ? MISSING_TIMEOUT : READ_TIMEOUT;
+    unsigned long timeout = READ_TIMEOUT;
     while (HX711_DOUT_IN & HX711_DOUT_BIT) {
         if (--timeout == 0) {
             hx711_missing = 1;
@@ -68,12 +132,9 @@ static unsigned char readRawOnce(long *out) {
     unsigned char i;
 
     // 24 data bits, then a 25th pulse that keeps Channel A / gain 128 for the next reading
-    // (the Arduino library does the same with GAIN = 1 extra pulse)
     for (i = 0; i < 25; i++) {
         // SCK must never stay high for more than ~60 us, so no interrupt while it is high.
         // Interrupts stay allowed while SCK is low (UART keeps working).
-        // (Same method as the original loadCell.c: this assumes interrupts are enabled when
-        //  the load cell is read, which is true everywhere in main.c.)
         __bic_SR_register(GIE);
 
         HX711_SCK_OUT |= HX711_SCK_BIT;
@@ -96,9 +157,8 @@ static unsigned char readRawOnce(long *out) {
         value -= 0x1000000L;
     }
 
+    noteReading(value);
     *out = value;
-    hx711_last = value;
-    hx711_missing = 0;
     return 1;
 }
 
@@ -151,44 +211,79 @@ void LoadCell_Tare(unsigned char samples) {
     LoadCell_ResetFilter();
 }
 
-static float rawToGrams(long raw) {
-    return (float)(raw - hx711_offset) / HX711_SCALE_FACTOR;
+// ---------------------------------------------------------------- normal use (never waits)
+
+void LoadCell_Poll(void) {
+    long v;
+
+    if (!LoadCell_IsReady()) {
+        return;
+    }
+    if (!readRawOnce(&v)) {
+        return;
+    }
+
+    avgSum += v;
+    if (++avgCount >= FILTER_READ_SAMPLES) {
+        pushAverage(avgSum / (long)avgCount);
+        avgSum = 0;
+        avgCount = 0;
+    }
 }
 
-static float applyDeadband(float g) {
-    if (g > -ZERO_DEADBAND_G && g < ZERO_DEADBAND_G) {
+void LoadCell_Tick(void) {
+    if (ticksSinceRead < 255) {
+        ticksSinceRead++;
+    }
+}
+
+unsigned char LoadCell_HasWeight(void) {
+    return filterCount > 0;
+}
+
+long LoadCell_GetRaw(void) {
+    return hx711_last;
+}
+
+long LoadCell_GetCounts(void) {
+    return filteredRaw() - hx711_offset;
+}
+
+float LoadCell_GetWeight(void) {
+    if (filterCount == 0) {
         return 0.0f;
     }
-    return g;
+    return applyDeadband(countsToGrams(LoadCell_GetCounts()));
 }
 
-float LoadCell_RawToGrams(long rawAvg) {
-    return applyDeadband(rawToGrams(rawAvg));
+LoadCellStatus LoadCell_GetStatus(void) {
+    if (hx711_missing || ticksSinceRead >= NO_DATA_TICKS) {
+        return LC_NO_DATA;
+    }
+    if (zeroRun >= SAME_READINGS) {
+        return LC_STUCK_LOW;
+    }
+    if (satRun >= SAME_READINGS) {
+        return LC_SATURATED;
+    }
+    return LC_OK;
+}
+
+const char *LoadCell_StatusText(LoadCellStatus s) {
+    switch (s) {
+        case LC_NO_DATA:   return "NO_DATA: check HX711 VCC/GND/DOUT";
+        case LC_STUCK_LOW: return "STUCK_LOW: check SCK wire / DOUT";
+        case LC_SATURATED: return "SATURATED: check E+ E- A+ A- wires";
+        default:           return "OK";
+    }
+}
+
+// ---------------------------------------------------------------- blocking conversions
+
+float LoadCell_RawToGrams(long raw) {
+    return applyDeadband(countsToGrams(raw - hx711_offset));
 }
 
 float LoadCell_GetGrams(unsigned char samples) {
     return LoadCell_RawToGrams(LoadCell_ReadAverage(samples));
-}
-
-float LoadCell_GetSmoothedGrams(void) {
-    return LoadCell_SmoothGrams(LoadCell_ReadAverage(FILTER_READ_SAMPLES));
-}
-
-// Moving average over the last FILTER_SIZE averaged readings, then the zero deadband
-float LoadCell_SmoothGrams(long rawAvg) {
-    float sample = rawToGrams(rawAvg);
-
-    if (filterCount == FILTER_SIZE) {
-        filterSum -= filterBuf[filterIdx];
-    } else {
-        filterCount++;
-    }
-
-    filterBuf[filterIdx] = sample;
-    filterSum += sample;
-    if (++filterIdx >= FILTER_SIZE) {
-        filterIdx = 0;
-    }
-
-    return applyDeadband(filterSum / (float)filterCount);
 }

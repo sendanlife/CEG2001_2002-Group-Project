@@ -32,6 +32,15 @@
 #define POST_DISPENSE_SAMPLES 16     // load-cell readings averaged after a dispense
 #define BUTTON_BIT            BIT1   // P1.1 = S2 button on the LaunchPad (test without the ESP32)
 #define SEND_RAW_TEMP         1      // 1 = also send RAW:<adc> with each TEMP line (debug; set 0 once temperature is right)
+#define LOADCELL_DEBUG        1      // 1 = send an LC: line about once a second (set 0 once the load cell works)
+
+// ---- low power ----
+// 1 = the CPU sleeps whenever there is nothing to do and wakes on an interrupt
+//     (temperature tick ~every 156 ms, or a byte from the ESP32). 0 = busy loop, as before.
+#define LOW_POWER             1
+// LPM0 = CPU off, clocks stay on (the UART keeps working as it is). Do not change this to LPM3_bits
+// unless you also move the UART to ACLK.
+#define LOW_POWER_BITS        LPM0_bits
 
 extern volatile unsigned char dispense1Flag;
 extern volatile unsigned char dispense2Flag;
@@ -54,6 +63,22 @@ static void sendWeightGrams(float g) {
     sprintf(buf, "WEIGHT:%lu.%lu\n", weight_x10 / 10, weight_x10 % 10);
     UART_SendString(buf);
 }
+
+#if LOADCELL_DEBUG
+// LC:OK raw=<last raw> counts=<raw - tare> g*10=<grams x10>     or     LC:<what is wrong>
+// To calibrate: put a known weight on, then HX711_SCALE_FACTOR = counts / grams.
+static void sendLoadCellLine(void) {
+    char lc[72];
+    LoadCellStatus st = LoadCell_GetStatus();
+    if (st == LC_OK) {
+        sprintf(lc, "LC:OK raw=%ld counts=%ld g*10=%ld\n",
+                LoadCell_GetRaw(), LoadCell_GetCounts(), (long)(LoadCell_GetWeight() * 10.0f));
+    } else {
+        sprintf(lc, "LC:%s raw=%ld\n", LoadCell_StatusText(st), LoadCell_GetRaw());
+    }
+    UART_SendString(lc);
+}
+#endif
 
 // Spins one motor until `expected` pills were seen by its own IR sensor.
 // Returns 1 if every expected pill dropped, 0 otherwise.
@@ -114,7 +139,7 @@ static unsigned char dispensePills(unsigned char motor, unsigned char expected) 
     LoadCell_ReadRaw();                          // throw away the first reading after the wait
 
     float grams = LoadCell_GetGrams(POST_DISPENSE_SAMPLES);   // average + zero deadband
-    if (LoadCell_IsConnected()) {                // nothing is sent if the HX711 is not answering
+    if (LoadCell_GetStatus() == LC_OK) {         // nothing is sent while the HX711 is silent, stuck or clipped
         sendWeightGrams(grams);
     }
     LoadCell_ResetFilter();                      // the weight just changed: do not blend it with old values
@@ -141,12 +166,15 @@ int main(void) {
     __delay_cycles(500000);     // let the HX711 and temperature sensor supply settle
     LoadCell_Tare(16);          // scale must be empty and still at power-up
     UART_SendString("READY\n"); // ESP32 monitor shows: MSP430 says: READY
+#if LOADCELL_DEBUG
+    sendLoadCellLine();         // tells you right away if the HX711 is missing / stuck
+#endif
 
     unsigned char sampleCount = 0;
     unsigned long adcSum = 0;
-    long weightSum = 0;
-    unsigned char weightCount = 0;
-    unsigned char haveWeight = 0;
+#if LOADCELL_DEBUG
+    unsigned char lcTicks = 0;
+#endif
 
     while (1) {
         // S2 button = same as a card tap with 1 pill per motor
@@ -206,29 +234,24 @@ int main(void) {
             } else {
                 LED_FAIL();
             }
-
-            weightSum = 0;                // start the next weight average fresh after a dispense
-            weightCount = 0;
         }
 
-        // Weight: take a reading whenever the HX711 has one ready (about every 100 ms),
-        // average FILTER_READ_SAMPLES of them, then smooth over the last FILTER_SIZE averages.
-        // Nothing waits here, so temperature sampling and the UART are not held up.
-        if (LoadCell_IsReady()) {
-            weightSum += LoadCell_ReadRaw();
-            weightCount++;
-            if (weightCount >= FILTER_READ_SAMPLES) {
-                latestWeight = LoadCell_SmoothGrams(weightSum / (long)weightCount);
-                weightSum = 0;
-                weightCount = 0;
-                haveWeight = 1;
-            }
-        }
+        // Weight: reads whenever the HX711 has a conversion ready (about every 100 ms) and keeps the
+        // 5 x 5 smoothed value inside the driver. It never waits, so nothing else is held up.
+        LoadCell_Poll();
 
         if (temp_ready_flag == 1) {
             adcSum += rawADC;
             temp_ready_flag = 0;
             sampleCount++;
+
+            LoadCell_Tick();              // lets the driver notice an HX711 that went silent
+#if LOADCELL_DEBUG
+            if (++lcTicks >= 6) {         // 6 ticks = about 1 s
+                lcTicks = 0;
+                sendLoadCellLine();
+            }
+#endif
 
             if (sampleCount >= 32) {
                 unsigned int avgADC = (unsigned int)(adcSum >> 5);
@@ -246,10 +269,23 @@ int main(void) {
                 UART_SendString(buf);
 #endif
 
-                if (haveWeight) {              // latest smoothed weight (no line if the HX711 is silent)
-                    sendWeightGrams(latestWeight);
+                // latest smoothed weight, only while the load cell is healthy
+                if (LoadCell_HasWeight() && LoadCell_GetStatus() == LC_OK) {
+                    sendWeightGrams(LoadCell_GetWeight());
                 }
             }
         }
+
+#if LOW_POWER
+        // Nothing left to do this pass: sleep until an interrupt. Interrupts are switched off while we
+        // decide, so a byte or tick that arrives right now cannot be missed; the same instruction that
+        // goes to sleep switches them back on.
+        __bic_SR_register(GIE);
+        if (!temp_ready_flag && !dispense1Flag && !dispense2Flag && !LoadCell_IsReady()) {
+            __bis_SR_register(LOW_POWER_BITS | GIE);
+        } else {
+            __bis_SR_register(GIE);
+        }
+#endif
     }
 }

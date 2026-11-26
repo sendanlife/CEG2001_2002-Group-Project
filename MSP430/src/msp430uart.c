@@ -61,6 +61,7 @@ void __attribute__((interrupt(USCI_A0_VECTOR))) USCI_A0_ISR(void) {
                 expected1 = 1; expected2 = 1;
                 dispense1Flag = 1; dispense2Flag = 1;
             }
+            __bic_SR_register_on_exit(LPM3_bits);   // wake main() if it is sleeping (does nothing otherwise)
             break;
         }
         default:

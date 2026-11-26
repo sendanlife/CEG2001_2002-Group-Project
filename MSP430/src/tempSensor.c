@@ -34,5 +34,6 @@ void __attribute__((interrupt(ADC12_VECTOR))) ADC12_ISR(void) {
     if (ADC12IV == ADC12IV_ADC12IFG0) {
         rawADC = ADC12MEM0;
         temp_ready_flag = 1;
+        __bic_SR_register_on_exit(LPM3_bits);   // wake main() if it is sleeping (does nothing otherwise)
     }
 }
