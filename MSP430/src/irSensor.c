@@ -1,8 +1,6 @@
 #include <msp430.h>
 #include "irSensor.h"
 
-#define IR_ALL_MASK (IR_SMALL_BIT | IR_LARGE_BIT)
-
 #define IR1_BIT BIT0     // P2.0 -> stepper 1
 #define IR2_BIT BIT2     // P2.2 -> stepper 2
 

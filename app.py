@@ -115,11 +115,17 @@ def create_app() -> Flask:
     @app.route("/api/dispense-status", methods=["POST"])
     def receive_dispense_status():
         data = request.get_json(silent=True) or {}
-        motor    = int(data.get("motor", 0))
-        dropped  = int(data.get("dropped", 0))
-        expected = int(data.get("expected", 1))
-        uuid_in  = str(data.get("uuid", "")).strip()
+        try:
+            motor = int(data.get("motor", 0))
+            dropped = int(data.get("dropped", 0))
+            expected = int(data.get("expected", 1))
+        except (TypeError, ValueError):
+            return jsonify({"success": False, "message": "motor, dropped and expected must be numbers"}), 400
 
+        uuid_in = str(data.get("uuid", "")).strip()
+        pill_size = str(data.get("pillSize", "SMALL")).strip().upper()
+
+        # three outcomes: 0 dropped = FAILED, some = UNSUCCESSFUL, all = SUCCESS
         if dropped <= 0:
             status = "FAILED"
         elif dropped < expected:
@@ -128,16 +134,17 @@ def create_app() -> Flask:
             status = "SUCCESS"
         is_ok = status == "SUCCESS"
 
+        # who is the patient: the uuid sent by the ESP32 first, else the last NFC tap
         nfc_id = current_app.config.get("LAST_DISPENSE_NFC", "UNKNOWN")
         user = User.query.get(uuid_in) if uuid_in else None
-        if not user:
+        if user is None and nfc_id and nfc_id != "UNKNOWN":
             user = User.query.filter(User.NFCId.ilike(nfc_id)).first()
-        user_name = current_app.config.get("LAST_DISPENSE_USER", "Unknown")
-        status = str(data.get("status", "")).upper()
-        pill_size = str(data.get("pillSize", "SMALL")).strip().upper()
-        is_ok = status == "OK"
 
-        user_uuid, user_name, nfc_id = _resolve_last_patient()
+        if user is not None:
+            user_uuid, user_name = user.UUID, user.NAME
+        else:
+            user_uuid, user_name, nfc_id = _resolve_last_patient()
+
         now = datetime.datetime.now()
 
         print(f"DISPENSE: uuid={uuid_in} nfc={nfc_id} user={'found' if user else 'NOT FOUND'} "
@@ -166,41 +173,35 @@ def create_app() -> Flask:
         # 2) history in a separate commit, so a failure here can't undo the stock
         try:
             db.session.add(DispenseHistory(nfc_id=nfc_id, status=status, timestamp=now))
-        try:
-            new_log = DispenseHistory(
-                nfc_id=nfc_id,
-                status=f"{pill_size}_IR_OK" if is_ok else f"{pill_size}_IR_FAIL",
-                timestamp=now,
-            )
-            db.session.add(new_log)
             db.session.commit()
         except Exception as e:
             db.session.rollback()
             print(f"DispenseHistory error: {e}")
 
-        hardware_state["pillSize"] = pill_size
-        hardware_state["lastPatient"] = user_name
-        hardware_state["lastUpdated"] = now.isoformat()
-        hardware_state["cupStatus"] = "DISPENSED_IR_OK" if is_ok else "DISPENSE_ERROR"
-        _record_hw_event(
-            f"{pill_size} IR {'OK' if is_ok else 'FAIL'}",
-            f"Patient: {user_name}",
-            "ok" if is_ok else "error",
-        )
+        # 3) live hardware state for the dashboard
+        if is_ok:
+            severity = "ok"
+        elif dropped > 0:
+            severity = "warning"
+        else:
+            severity = "error"
 
         hardware_state["pillSize"] = pill_size
         hardware_state["lastPatient"] = user_name
         hardware_state["lastUpdated"] = now.isoformat()
         hardware_state["cupStatus"] = "DISPENSED_IR_OK" if is_ok else "DISPENSE_ERROR"
         _record_hw_event(
-            f"{pill_size} IR {'OK' if is_ok else 'FAIL'}",
-            f"Patient: {user_name}",
-            "ok" if is_ok else "error",
+            f"Motor {motor} {status.title()}",
+            f"{dropped}/{expected} dropped \u00b7 Patient: {user_name}",
+            severity,
         )
 
         event_payload = {
             "eventType": "PILL_DISPENSED" if is_ok else "DISPENSE_ERROR",
             "status": status,
+            "motor": motor,
+            "dropped": dropped,
+            "expected": expected,
             "pillSize": pill_size,
             "userId": user_uuid,
             "patientName": user_name,
@@ -358,8 +359,7 @@ def create_app() -> Flask:
     @app.route("/api/staff/schedules/<scheduleId>", methods=["PUT"])
     def update_schedule(scheduleId):
         try:
-            from models import OnSchedule  
-            from datetime import datetime
+            from models import OnSchedule
             
             data = request.get_json()
             schedule = OnSchedule.query.get(scheduleId)

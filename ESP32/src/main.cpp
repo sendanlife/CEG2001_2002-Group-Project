@@ -133,14 +133,18 @@ void checkMSP430UART() {
             } else if (uartBuffer.startsWith("DISPENSE:")) {
                 // DISPENSE:<motor>:<dropped>:<expected>
                 int a = uartBuffer.indexOf(':', 9);
-                int b = uartBuffer.indexOf(':', a + 1);
-                int motor    = uartBuffer.substring(9, a).toInt();
-                int dropped  = uartBuffer.substring(a + 1, b).toInt();
-                int expected = uartBuffer.substring(b + 1).toInt();
-                postDispenseStatusToFlask(motor, dropped, expected);
+                int b = (a > 0) ? uartBuffer.indexOf(':', a + 1) : -1;
+                if (a > 0 && b > a) {
+                    int motor    = uartBuffer.substring(9, a).toInt();
+                    int dropped  = uartBuffer.substring(a + 1, b).toInt();
+                    int expected = uartBuffer.substring(b + 1).toInt();
+                    postDispenseStatusToFlask(motor, dropped, expected);
+                } else {
+                    Serial.println("MSP430 says: " + uartBuffer);   // old-format line, not posted
+                }
             } else if (uartBuffer.startsWith("WEIGHT:")) {
                 float weightG = uartBuffer.substring(7).toFloat();
-                postWeightToFlask(weightG);
+                postWeightToFlask("SMALL", weightG);
             } else if (uartBuffer.length() > 0) {
                 // anything else (STEPS:n, HELLO...) is shown, not dropped
                 Serial.println("MSP430 says: " + uartBuffer);
@@ -153,31 +157,6 @@ void checkMSP430UART() {
             }
         }
     }
-}
-
-void assignNfc(const String& uid) {
-    if (uid == "") {
-        Serial.println("No NFC UID scanned yet to autofill.");
-        return;
-    }
-
-    if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("Error: Wi-Fi Disconnected (assignNfc skipped)");
-        return;
-    }
-
-    HTTPClient http;
-    http.setTimeout(3000);
-    http.begin(pendingNfcEndpoint);
-    http.addHeader("Content-Type", "application/json");
-
-    String payload = "{\"uid\":\"" + uid + "\"}";
-    int httpCode = http.POST(payload);
-    Serial.printf("Autofill NFC %s -> HTTP %d\n", uid.c_str(), httpCode);
-    if (httpCode > 0) {
-        Serial.println("Server Response: " + http.getString());
-    }
-    http.end();
 }
 
 String extractJsonString(const String& json, const String& key) {
@@ -287,58 +266,58 @@ void handleNFC() {
 
     lastScanMs = millis();
 
-    if (scannedUID != "") {
-        scannedUID.trim();
-        scannedUID.toUpperCase();
-        Serial.println("Card Tapped! UID: " + scannedUID);
+    scannedUID.trim();
+    scannedUID.toUpperCase();
+    Serial.println("Card Tapped! UID: " + scannedUID);
 
-        if (scannedUID != lastScannedUID) {
-            lastScannedUID = scannedUID;
-            assignNfc(scannedUID);
-        }
+    if (scannedUID != lastScannedUID) {
+        lastScannedUID = scannedUID;
+        assignNfc(scannedUID);
+    }
 
-    if (WiFi.status() == WL_CONNECTED) {
-        HTTPClient http;
-        http.setTimeout(2500);
-        http.begin(nfcEndpoint);
-        http.addHeader("Content-Type", "application/json");
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("Error: Wi-Fi Disconnected");
+        return;
+    }
 
-        String jsonPayload = "{\"uid\":\"" + scannedUID + "\"}";
-        Serial.println("Verifying with Server: " + jsonPayload);
+    HTTPClient http;
+    http.setTimeout(2500);
+    http.begin(nfcEndpoint);
+    http.addHeader("Content-Type", "application/json");
 
-        int httpResponseCode = http.POST(jsonPayload);
-        String response = http.getString();
-        bool shouldAutofill = false;
+    String jsonPayload = "{\"uid\":\"" + scannedUID + "\"}";
+    Serial.println("Verifying with Server: " + jsonPayload);
 
-            if (httpResponseCode == 200) {
-                String patientUUID = extractJsonString(response, "uuid");
-                currentPatientUUID = patientUUID;
-                int pillCount = assignPillCountToPatient(patientUUID);
+    int httpResponseCode = http.POST(jsonPayload);
+    String response = http.getString();
+    bool shouldAutofill = false;
 
-                Serial.printf("DEBUG: Patient UUID: %s, Pill Count: %d\n", patientUUID.c_str(), pillCount);
+    if (httpResponseCode == 200) {
+        String patientUUID = extractJsonString(response, "uuid");
+        currentPatientUUID = patientUUID;
+        int pillCount = assignPillCountToPatient(patientUUID);
 
-                if (pillCount >= 1) {
-                    sendDosesToMSP430(dose1, dose2);
-                } else {
-                    Serial.println("DEBUG: No pills assigned (0) -> Nothing sent.");
-                }
-            } else {
-                Serial.print("Server Denied. HTTP Code: ");
-                Serial.println(httpResponseCode);
-                Serial.println("Reason: " + response);
+        Serial.printf("DEBUG: Patient UUID: %s, Pill Count: %d\n", patientUUID.c_str(), pillCount);
 
-                if (httpResponseCode == 403) {
-                    shouldAutofill = true;
-                }
-            }
-
-        http.end();
-
-        if (shouldAutofill) {
-            assignNfc(scannedUID);
+        if (pillCount >= 1) {
+            sendDosesToMSP430(dose1, dose2);
+        } else {
+            Serial.println("DEBUG: No pills assigned (0) -> Nothing sent.");
         }
     } else {
-        Serial.println("Error: Wi-Fi Disconnected");
+        Serial.print("Server Denied. HTTP Code: ");
+        Serial.println(httpResponseCode);
+        Serial.println("Reason: " + response);
+
+        if (httpResponseCode == 403) {
+            shouldAutofill = true;
+        }
+    }
+
+    http.end();
+
+    if (shouldAutofill) {
+        assignNfc(scannedUID);
     }
 }
 

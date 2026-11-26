@@ -63,24 +63,6 @@ def verify_nfc():
 
     current_app.config["ACTIVE_PATIENT_UUID"] = user.UUID
 
-<<<<<<< HEAD
-        return success(
-            {
-                "patientName": user.NAME,
-                "nfcId": user.NFCId,
-                "status": "approved"
-            },
-            "NFC authentication successful. Dispensing medication.",
-            200
-        )
-    else:
-        print(f"Card Denied. No user found with NFC ID: {scanned_uid}")
-        return error("Unauthorized card tap. NFC ID not found in database.", 403)
-
-@auth_bp.route("/auth/assign-nfc", methods=["POST"])
-def assign_nfc():
-    data = request.get_json(silent=True) or {}
-=======
     return success({
         "patientName": user.NAME,
         "nfcId": user.NFCId,
@@ -92,18 +74,12 @@ def assign_nfc():
 @auth_bp.route("/auth/assign-nfc", methods=["POST"])
 def assign_nfc():
     data = request.get_json() or {}
->>>>>>> 4ae0d6afe5619732ed3bf239f7bd9b3ef93233b9
     missing = require_fields(data, ["uuid", "nfcId"])
     if missing:
         return error(f"Missing fields: {', '.join(missing)}", 400)
 
-<<<<<<< HEAD
-    uuid_val = str(data["uuid"]).strip().upper()
-    nfc_id = str(data["nfcId"]).strip().upper()
-=======
     uuid_val = data["uuid"].strip().upper()
     nfc_id = data["nfcId"].strip().upper()
->>>>>>> 4ae0d6afe5619732ed3bf239f7bd9b3ef93233b9
 
     if not nfc_id:
         return error("NFC ID cannot be empty", 400)
@@ -140,24 +116,17 @@ def assign_nfc():
 @auth_bp.route("/auth/pending-nfc", methods=["POST"])
 def set_pending_nfc():
     data = request.get_json(silent=True) or {}
-<<<<<<< HEAD
-    uid = str(data.get("uid") or "").strip().upper()
-=======
     uid = (data.get("uid") or "").strip().upper()
->>>>>>> 4ae0d6afe5619732ed3bf239f7bd9b3ef93233b9
     if not uid:
         return error("Missing uid", 400)
 
     current_app.config["PENDING_NFC_UID"] = uid
-<<<<<<< HEAD
 
     # Push live autofill to any open Add Patient / Assign NFC modal
     socketio = current_app.extensions.get("socketio")
     if socketio:
         socketio.emit("new-event", {"eventType": "NFC_SCANNED", "uid": uid})
 
-=======
->>>>>>> 4ae0d6afe5619732ed3bf239f7bd9b3ef93233b9
     return success({"nfcId": uid}, "Pending NFC UID saved for autofill", 200)
 
 
