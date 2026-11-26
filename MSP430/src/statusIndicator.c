@@ -44,7 +44,7 @@ void Status_SetDispensing(void) {
 }
 
 void Status_SetDispensed(void) {
-    P2OUT = (P2OUT & ~STATUS_LED_MASK) | LED_GREEN_BIT;
+    P2OUT = (P2OUT & ~STATUS_LED_MASK) | LED_GREEN_BIT | BUZZER_BIT;
 }
 
 void Status_SetFail(void) {

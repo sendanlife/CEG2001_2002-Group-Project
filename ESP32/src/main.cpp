@@ -79,7 +79,7 @@ void postWeightToFlask(const String& pillSize, float weightG) {
 
     String payload = "{\"pillSize\":\"" + pillSize + "\",\"weight\":" + String(weightG, 2) + "}";
     int httpCode = http.POST(payload);
-    Serial.printf("Weight (%s) %.2f g -> HTTP %d\n", pillSize.c_str(), weightG, httpCode);
+    Serial.printf("Weight %.2f g -> HTTP %d\n", weightG, httpCode);
     http.end();
 }
 
