@@ -1,135 +1,100 @@
+
 #include "hx711.h"
 
-static int32_t offset = 0;
-static float   scale  = 1.0f;
-
-static void delay_ms(uint16_t ms)
-{
-    while (ms--) {
-        __delay_cycles(HX_CPU_HZ / 1000UL);
-    }
-}
+// HX711 connections
+// DOUT = P3.6
+// SCK  = P3.5
 
 void HX711_Init(void)
 {
-    HX_DIR |=  HX_SCK_PIN;              /* SCK = output, low (HX711 awake) */
-    HX_OUT &= ~HX_SCK_PIN;
-    HX_DIR &= ~HX_DOUT_PIN;             /* DOUT = input                    */
+    // Configure SCK as output
+    P3DIR |= BIT5;
+
+    // Configure DOUT as input
+    P3DIR &= ~BIT6;
+
+    // Disable GPIO pull resistor on DOUT
+    P3REN &= ~BIT6;
+
+    // Start with SCK LOW
+    P3OUT &= ~BIT5;
+
+    // Allow HX711 to power up
+    __delay_cycles(1000000);
 }
 
-bool HX711_IsReady(void)
+uint8_t HX711_ReadRaw(long *result)
 {
-    return !(HX_IN & HX_DOUT_PIN);
+    unsigned long raw = 0;
+    unsigned long timeout = 1000000;
+    int i;
+
+    // Wait until HX711 data is ready
+    while (P3IN & BIT6)
+    {
+        if (timeout-- == 0)
+        {
+            return 0;
+        }
+    }
+
+    // Read 24 bits from HX711
+    for (i = 0; i < 24; i++)
+    {
+        P3OUT |= BIT5;
+        __delay_cycles(1);
+
+        raw <<= 1;
+
+        if (P3IN & BIT6)
+        {
+            raw |= 1;
+        }
+
+        P3OUT &= ~BIT5;
+        __delay_cycles(1);
+    }
+
+    // One additional pulse selects Channel A, gain 128
+    P3OUT |= BIT5;
+    __delay_cycles(1);
+
+    P3OUT &= ~BIT5;
+    __delay_cycles(1);
+
+    // Convert 24-bit signed value to 32-bit signed value
+    if (raw & 0x800000UL)
+    {
+        raw |= 0xFF000000UL;
+    }
+
+    *result = (long)raw;
+
+    return 1;
 }
 
-bool HX711_ReadRaw(int32_t *value)
+uint8_t HX711_ReadAverage(long *average, uint8_t samples)
 {
-    uint32_t data = 0;
-    uint8_t  i;
-    uint16_t waited = 0;
-    unsigned short gie;
-
-    /* Wait for the HX711 to finish a conversion (~100 ms at 10 SPS) */
-    while (!HX711_IsReady()) {
-        if (waited++ >= 1000)
-            return false;               /* timeout: module not connected / no power */
-        delay_ms(1);
-    }
-
-    gie = __get_SR_register() & GIE;
-    __disable_interrupt();              /* SCK must not stay high > 60 us or the HX711 powers down */
-
-    for (i = 0; i < 24; i++) {          /* 24 data bits, MSB first */
-        HX_OUT |= HX_SCK_PIN;
-        data <<= 1;
-        if (HX_IN & HX_DOUT_PIN)
-            data |= 1;
-        HX_OUT &= ~HX_SCK_PIN;
-    }
-    for (i = 24; i < HX_PULSES; i++) {  /* extra pulses select channel/gain of the NEXT reading */
-        HX_OUT |= HX_SCK_PIN;
-        HX_OUT &= ~HX_SCK_PIN;
-    }
-
-    if (gie) __enable_interrupt();
-
-    if (data & 0x800000UL)              /* sign-extend 24-bit two's complement */
-        data |= 0xFF000000UL;
-
-    *value = (int32_t)data;
-    return true;
-}
-
-bool HX711_ReadAverage(uint8_t samples, int32_t *avg)
-{
-    int32_t sum = 0, v;
+    long sum = 0;
+    long reading;
     uint8_t i;
 
-    if (samples < 1)  samples = 1;
-    if (samples > 64) samples = 64;     /* keeps the 32-bit sum from overflowing */
-
-    for (i = 0; i < samples; i++) {
-        if (!HX711_ReadRaw(&v))
-            return false;
-        sum += v;
+    if (samples == 0)
+    {
+        return 0;
     }
-    *avg = sum / samples;
-    return true;
-}
 
-bool HX711_Tare(uint8_t samples)
-{
-    int32_t avg;
-    if (!HX711_ReadAverage(samples, &avg))
-        return false;
-    offset = avg;
-    return true;
-}
+    for (i = 0; i < samples; i++)
+    {
+        if (!HX711_ReadRaw(&reading))
+        {
+            return 0;
+        }
 
-void HX711_SetScale(float counts_per_unit)
-{
-    if (counts_per_unit != 0.0f)
-        scale = counts_per_unit;
-}
+        sum += reading;
+    }
 
-bool HX711_CalibrateScale(float known_weight, uint8_t samples)
-{
-    int32_t avg;
-    if (known_weight <= 0.0f || !HX711_ReadAverage(samples, &avg))
-        return false;
-    scale = (float)(avg - offset) / known_weight;
-    if (scale == 0.0f)
-        scale = 1.0f;
-    return true;
-}
+    *average = sum / samples;
 
-int32_t HX711_GetOffset(void)
-{
-    return offset;
-}
-
-float HX711_RawToUnits(int32_t raw)
-{
-    return (float)(raw - offset) / scale;
-}
-
-bool HX711_GetUnits(uint8_t samples, float *units)
-{
-    int32_t avg;
-    if (!HX711_ReadAverage(samples, &avg))
-        return false;
-    *units = HX711_RawToUnits(avg);
-    return true;
-}
-
-void HX711_PowerDown(void)
-{
-    HX_OUT &= ~HX_SCK_PIN;
-    HX_OUT |=  HX_SCK_PIN;              /* held high > 60 us -> power down */
-    __delay_cycles(100);
-}
-
-void HX711_PowerUp(void)
-{
-    HX_OUT &= ~HX_SCK_PIN;
+    return 1;
 }

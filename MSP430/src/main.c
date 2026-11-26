@@ -1,93 +1,176 @@
-#ifndef LINEAR_ACTUATOR_H
-#define LINEAR_ACTUATOR_H
 
 #include <msp430.h>
-#include <stdio.h>
-#include "stepper.h"
+#include <stdint.h>
+#include "hx711.h"
 #include "msp430uart.h"
-#include "tempSensor.h"
-#include "irSensor.h"
-#include "loadCell.h"
 
-volatile float latestTemp = 0.0f;
-volatile float latestWeight = 0.0f;
+/* ---------------- SETTINGS ---------------- */
 
-static void sendWeightReading(long rawAvg) {
-    latestWeight = LoadCell_RawToGrams(rawAvg);
-    unsigned long weight_x10 = (unsigned long)(latestWeight * 10.0f + 0.5f);
-    char buf[24];
-    sprintf(buf, "WEIGHT:%lu.%lu\n", weight_x10 / 10, weight_x10 % 10);
-    UART_SendString(buf);
+#define CUP_THRESHOLD_COUNTS  15000L
+#define CUP_REMOVAL_THRESHOLD 7500L
+
+#define BASELINE_SAMPLES      40
+#define READING_SAMPLES      5
+
+/* LED connected to P1.0 */
+
+/* ---------------- VARIABLES ---------------- */
+
+long baseline_raw = 0;
+long current_raw = 0;
+long difference = 0;
+
+uint8_t cup_detected = 0;
+
+/* ---------------- UART NUMBER PRINTING ---------------- */
+
+void UART_SendNumber(long number)
+{
+    char buffer[12];
+    int i = 0;
+
+    if (number < 0)
+    {
+        UART_SendChar('-');
+        number = -number;
+    }
+
+    if (number == 0)
+    {
+        UART_SendChar('0');
+        return;
+    }
+
+    while (number > 0 && i < 11)
+    {
+        buffer[i++] = (char)('0' + (number % 10));
+        number /= 10;
+    }
+
+    while (i > 0)
+    {
+        UART_SendChar(buffer[--i]);
+    }
 }
 
-int main(void) {
+/* ---------------- CALCULATE DIFFERENCE ---------------- */
+
+long GetDifference(long value1, long value2)
+{
+    long result = value1 - value2;
+
+    if (result < 0)
+    {
+        result = -result;
+    }
+
+    return result;
+}
+
+/* ---------------- MAIN PROGRAM ---------------- */
+
+int main(void)
+{
     WDTCTL = WDTPW | WDTHOLD;
 
-    stepper_init();
+    /* Configure LED */
+    P1DIR |= BIT0;
+    P1OUT &= ~BIT0;
+
+    /* Initialise UART */
     UART_Init();
-    TempSensor_Init();
-    IRSensor_Init();
-    LoadCell_Init();
 
-    __bis_SR_register(GIE);
+    /* Initialise HX711 */
+    HX711_Init();
 
-    LoadCell_Tare(16);
+    __enable_interrupt();
 
-    unsigned char sampleCount = 0;
-    unsigned long adcSum = 0;
-    long weightSum = 0;
-    unsigned char weightCount = 0;
+    UART_SendString("\r\n");
+    UART_SendString("============================\r\n");
+    UART_SendString("   LOAD CELL CUP TEST\r\n");
+    UART_SendString("============================\r\n");
 
-    while (1) {
-        if (dispense_flag == 1) {
-            dispense_flag = 0;
-            IRSensor_Arm();
-            stepper_rotate(512);
+    UART_SendString("Keep the platform empty.\r\n");
+    UART_SendString("Calibrating baseline...\r\n");
+
+    /* Allow HX711 to settle */
+    __delay_cycles(2000000);
+
+    /* Read empty platform baseline */
+    if (!HX711_ReadAverage(&baseline_raw, BASELINE_SAMPLES))
+    {
+        UART_SendString("ERROR: HX711 baseline read failed!\r\n");
+
+        while (1)
+        {
+            P1OUT ^= BIT0;
             __delay_cycles(500000);
-            IRSensor_Disarm();
-
-            if (pill_detected_flag == 1) {
-                UART_SendString("DISPENSE:OK\n");
-            } else {
-                UART_SendString("DISPENSE:FAIL\n");
-            }
-
-            long postSum = 0;
-            unsigned char i;
-            for (i = 0; i < 4; i++) {
-                postSum += LoadCell_ReadRaw();
-            }
-            sendWeightReading(postSum / 4);
-        }
-
-        if (temp_ready_flag == 1) {
-            adcSum += rawADC;
-            temp_ready_flag = 0;
-            sampleCount++;
-
-            if ((sampleCount & 0x03) == 0 && LoadCell_IsReady()) {
-                weightSum += LoadCell_ReadRaw();
-                weightCount++;
-            }
-
-            if (sampleCount >= 32) {
-                unsigned int avgADC = (unsigned int)(adcSum >> 5);
-                adcSum = 0;
-                sampleCount = 0;
-
-                latestTemp = ((float)avgADC / 4095.0f) * 330.0f;
-                unsigned long temp_x10 = ((unsigned long)avgADC * 3300UL) / 4095UL;
-                char buf[24];
-                sprintf(buf, "TEMP:%lu.%lu\n", temp_x10 / 10, temp_x10 % 10);
-                UART_SendString(buf);
-
-                if (weightCount > 0) {
-                    sendWeightReading(weightSum / (long)weightCount);
-                    weightSum = 0;
-                    weightCount = 0;
-                }
-            }
         }
     }
-    return 0;
+
+    UART_SendString("Baseline raw reading: ");
+    UART_SendNumber(baseline_raw);
+    UART_SendString("\r\n");
+
+    UART_SendString("Place your 7g cup on the platform.\r\n");
+    UART_SendString("Monitoring started...\r\n\r\n");
+
+    /* ---------------- CONTINUOUS MONITORING ---------------- */
+
+    while (1)
+    {
+        if (!HX711_ReadAverage(&current_raw, READING_SAMPLES))
+        {
+            UART_SendString("ERROR: HX711 reading failed!\r\n");
+            __delay_cycles(500000);
+            continue;
+        }
+
+        /* Compare current reading against empty baseline */
+        difference = GetDifference(current_raw, baseline_raw);
+
+        UART_SendString("Raw: ");
+        UART_SendNumber(current_raw);
+
+        UART_SendString(" | Difference: ");
+        UART_SendNumber(difference);
+
+        UART_SendString(" | Cup: ");
+
+        /* Detect cup placement */
+        if (!cup_detected && difference >= CUP_THRESHOLD_COUNTS)
+        {
+            cup_detected = 1;
+
+            P1OUT |= BIT0;
+
+            UART_SendString("DETECTED");
+            UART_SendString("\r\n");
+        }
+
+        /* Detect cup removal */
+        else if (cup_detected &&
+                 difference < CUP_REMOVAL_THRESHOLD)
+        {
+            cup_detected = 0;
+
+            P1OUT &= ~BIT0;
+
+            UART_SendString("REMOVED");
+            UART_SendString("\r\n");
+        }
+
+        else if (cup_detected)
+        {
+            UART_SendString("PRESENT");
+            UART_SendString("\r\n");
+        }
+        else
+        {
+            UART_SendString("NOT DETECTED");
+            UART_SendString("\r\n");
+        }
+
+        __delay_cycles(1000000);
+    }
 }
